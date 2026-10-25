@@ -1,5 +1,5 @@
 import { api } from '@/services/api';
-import { obterToken, sair } from '@/services/authService';
+import { encerrarSessaoSeInvalida, obterToken, sair } from '@/services/authService';
 import type { ChamadoResponseDTO } from '@/types/chamado';
 import axios from 'axios';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -44,9 +44,7 @@ export default function HomeScreen() {
       const resposta = await api.get<ChamadoResponseDTO[]>('/api/chamados');
       setChamados(resposta.data);
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        // Token expirado ou invalido: exige novo login.
-        await sair();
+      if (await encerrarSessaoSeInvalida(error)) {
         router.replace('/login');
         return;
       }

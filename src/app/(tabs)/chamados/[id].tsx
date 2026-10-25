@@ -1,5 +1,5 @@
 import { api } from '@/services/api';
-import { obterToken, sair } from '@/services/authService';
+import { encerrarSessaoSeInvalida, obterToken, sair } from '@/services/authService';
 import type { ChamadoResponseDTO } from '@/types/chamado';
 import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -129,16 +131,14 @@ export default function DetalhesChamadoScreen() {
         setFotosProblema(respostaFotos.data);
         setTokenFotos(token);
       } catch (falhaFoto) {
-        if (axios.isAxiosError(falhaFoto) && falhaFoto.response?.status === 401) {
-          await sair();
+        if (await encerrarSessaoSeInvalida(falhaFoto)) {
           router.replace('/login');
           return;
         }
         setErroFotos('Nao foi possivel carregar as fotos do problema. Atualize a tela.');
       }
     } catch (falha) {
-      if (axios.isAxiosError(falha) && falha.response?.status === 401) {
-        await sair();
+      if (await encerrarSessaoSeInvalida(falha)) {
         router.replace('/login');
         return;
       }
@@ -170,8 +170,7 @@ export default function DetalhesChamadoScreen() {
       setFotoSelecionada(null);
       Alert.alert('Sucesso', mensagemSucesso);
     } catch (falha) {
-      if (axios.isAxiosError(falha) && falha.response?.status === 401) {
-        await sair();
+      if (await encerrarSessaoSeInvalida(falha)) {
         router.replace('/login');
         return;
       }
@@ -294,6 +293,37 @@ export default function DetalhesChamadoScreen() {
     ]);
   }
 
+  // Abre o trajeto ate a localizacao registrada no chamado.
+  // A navegacao e feita pelo aplicativo de mapas do celular, sem
+  // solicitar a localizacao do funcionario dentro do CityReport.
+  async function abrirNoMapa() {
+    if (!chamado) return;
+
+    const latitude = chamado.latitude;
+    const longitude = chamado.longitude;
+
+    if (
+      latitude == null || longitude == null ||
+      !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      latitude < -90 || latitude > 90 ||
+      longitude < -180 || longitude > 180
+    ) {
+      Alert.alert('Localizacao indisponivel', 'Este chamado nao possui coordenadas validas.');
+      return;
+    }
+
+    const destino = encodeURIComponent(`${latitude},${longitude}`);
+    const url = Platform.OS === 'ios'
+      ? `https://maps.apple.com/?daddr=${destino}&dirflg=d`
+      : `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving`;
+
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Erro', 'Nao foi possivel abrir o mapa neste dispositivo.');
+    }
+  }
+
   const emExecucao = chamado?.status === 'EM_EXECUCAO';
   const atribuido = chamado?.status === 'ATRIBUIDO';
 
@@ -351,9 +381,24 @@ export default function DetalhesChamadoScreen() {
                 <View style={styles.bloco}>
                   <Text style={styles.subtitulo}>Localizacao</Text>
                   <Text>Endereco: {chamado.endereco || 'Nao informado'}</Text>
-                  {chamado.latitude != null && chamado.longitude != null ? (
-                    <Text>Coordenadas: {chamado.latitude}, {chamado.longitude}</Text>
-                  ) : null}
+                  {chamado.latitude != null && chamado.longitude != null &&
+                    Number.isFinite(chamado.latitude) && Number.isFinite(chamado.longitude) &&
+                    chamado.latitude >= -90 && chamado.latitude <= 90 &&
+                    chamado.longitude >= -180 && chamado.longitude <= 180 ? (
+                    <>
+                      <Text>Coordenadas: {chamado.latitude}, {chamado.longitude}</Text>
+                      <Pressable
+                        style={styles.botaoSecundario}
+                        accessibilityRole="button"
+                        accessibilityLabel="Abrir rota ate o chamado no aplicativo de mapas"
+                        onPress={() => void abrirNoMapa()}
+                      >
+                        <Text>Abrir rota no mapa</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <Text>Este chamado nao possui coordenadas para abrir o mapa.</Text>
+                  )}
                 </View>
 
                 <View style={styles.bloco}>

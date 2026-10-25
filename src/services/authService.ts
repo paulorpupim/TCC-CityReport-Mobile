@@ -1,5 +1,6 @@
 
 import * as SecureStore from 'expo-secure-store';
+import axios from 'axios';
 
 import { api } from './api';
 
@@ -48,4 +49,41 @@ export async function obterToken(): Promise<string | null> {
 // Encerra a sessao local removendo o token do dispositivo.
 export async function sair(): Promise<void> {
   await SecureStore.deleteItemAsync(CHAVE_TOKEN);
+}
+
+// Confere se um erro de autenticacao exige novo login.
+// 401 = token ausente, invalido ou expirado.
+// 403 tambem pode significar "chamado de outro funcionario", por isso
+// confirmamos a permissao em uma rota geral antes de encerrar a sessao.
+export async function encerrarSessaoSeInvalida(erro: unknown): Promise<boolean> {
+  if (!axios.isAxiosError(erro)) return false;
+
+  const status = erro.response?.status;
+
+  if (status === 401) {
+    await sair();
+    return true;
+  }
+
+  if (status !== 403) return false;
+
+  try {
+    // Esta rota lista somente chamados do proprio funcionario.
+    // Se funcionar, a conta esta autorizada e o 403 era pontual.
+    await api.get('/api/chamados');
+    return false;
+  } catch (falhaVerificacao) {
+    if (
+      axios.isAxiosError(falhaVerificacao) &&
+      (falhaVerificacao.response?.status === 401 ||
+        falhaVerificacao.response?.status === 403)
+    ) {
+      // Conta inativa, perfil alterado ou token invalidado.
+      await sair();
+      return true;
+    }
+
+    // Sem conexao/erro 5xx nao deve apagar uma sessao valida.
+    return false;
+  }
 }
