@@ -1,9 +1,17 @@
-import { api } from '@/services/api';
 import { encerrarSessaoSeInvalida, obterToken, sair } from '@/services/authService';
-import type { ChamadoResponseDTO } from '@/types/chamado';
+import {
+  buscarChamado,
+  iniciarExecucao,
+  listarFotosProblema,
+  obterFonteFoto,
+  registrarImpedimento,
+  solicitarFinalizacao,
+  validarFotoSolucao
+} from '@/services/chamadoService';
+import type { ChamadoResponseDTO, FotoChamadoResponseDTO } from '@/types/chamado';
 import axios from 'axios';
-import * as ImagePicker from 'expo-image-picker';
 import { Image as ImagemRemota } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -21,39 +29,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-type FotoChamadoResponseDTO = {
-  id: number;
-  tipo: 'PROBLEMA' | 'SOLUCAO';
-  dataEnvio: string;
-};
-
-const TAMANHO_MAXIMO_FOTO = 5 * 1024 * 1024; // Mesmo limite do backend: 5 MB.
-
-// O backend aceita apenas arquivos JPG, PNG e WebP reais.
-function identificarTipoImagem(foto: ImagePicker.ImagePickerAsset) {
-  const nome = foto.fileName ?? foto.uri.split('?')[0];
-  const extensao = nome.split('.').pop()?.toLowerCase();
-  const tipoInformado = foto.mimeType?.toLowerCase();
-
-  if (tipoInformado === 'image/jpeg' || tipoInformado === 'image/jpg') {
-    return { mime: 'image/jpeg', extensao: 'jpg' };
-  }
-  if (tipoInformado === 'image/png') {
-    return { mime: 'image/png', extensao: 'png' };
-  }
-  if (tipoInformado === 'image/webp') {
-    return { mime: 'image/webp', extensao: 'webp' };
-  }
-  if (tipoInformado) return null;
-
-  if (extensao === 'jpg' || extensao === 'jpeg') {
-    return { mime: 'image/jpeg', extensao: 'jpg' };
-  }
-  if (extensao === 'png') return { mime: 'image/png', extensao: 'png' };
-  if (extensao === 'webp') return { mime: 'image/webp', extensao: 'webp' };
-  return null;
-}
 
 function mensagemDeErro(erro: unknown): string {
   if (axios.isAxiosError(erro)) {
@@ -113,22 +88,20 @@ export default function DetalhesChamadoScreen() {
     setTokenFotos(null);
 
     try {
-      const resposta = await api.get<ChamadoResponseDTO>(`/api/chamados/${chamadoId}`);
-      setChamado(resposta.data);
+      const detalhes = await buscarChamado(chamadoId);
+      setChamado(detalhes);
 
       // Metadados e imagens ficam separados do DTO do chamado.
       // Se as fotos falharem, as operacoes do chamado continuam disponiveis.
       try {
-        const respostaFotos = await api.get<FotoChamadoResponseDTO[]>(
-          `/api/chamados/${chamadoId}/fotos`
-        );
+        const fotos = await listarFotosProblema(chamadoId);
         const token = await obterToken();
         if (!token) {
           await sair();
           router.replace('/login');
           return;
         }
-        setFotosProblema(respostaFotos.data);
+        setFotosProblema(fotos);
         setTokenFotos(token);
       } catch (falhaFoto) {
         if (await encerrarSessaoSeInvalida(falhaFoto)) {
@@ -156,15 +129,15 @@ export default function DetalhesChamadoScreen() {
 
   // Centraliza o tratamento de respostas e erros das operacoes.
   async function executarAcao(
-    requisicao: () => Promise<{ data: ChamadoResponseDTO }>,
+    requisicao: () => Promise<ChamadoResponseDTO>,
     mensagemSucesso: string
   ) {
     if (processando) return;
     setProcessando(true);
 
     try {
-      const resposta = await requisicao();
-      setChamado(resposta.data);
+      const chamadoAtualizado = await requisicao();
+      setChamado(chamadoAtualizado);
       setMostrarImpedimento(false);
       setJustificativa('');
       setFotoSelecionada(null);
@@ -180,13 +153,13 @@ export default function DetalhesChamadoScreen() {
     }
   }
 
-  function iniciarExecucao() {
+  function iniciarExecucaoFunc() {
     Alert.alert('Iniciar execucao', 'Deseja iniciar o servico neste chamado?', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Iniciar',
         onPress: () => void executarAcao(
-          () => api.post<ChamadoResponseDTO>(`/api/chamados/${chamadoId}/iniciar`),
+          () => iniciarExecucao(chamadoId),
           'Execucao iniciada.'
         ),
       },
@@ -209,10 +182,7 @@ export default function DetalhesChamadoScreen() {
       {
         text: 'Confirmar',
         onPress: () => void executarAcao(
-          () => api.post<ChamadoResponseDTO>(
-            `/api/chamados/${chamadoId}/impedimento`,
-            { justificativa: texto }
-          ),
+          () => registrarImpedimento(chamadoId, texto),
           'Impedimento registrado. Aguarde a decisao do atendente.'
         ),
       },
@@ -241,18 +211,13 @@ export default function DetalhesChamadoScreen() {
       if (resultado.canceled || !resultado.assets.length) return;
       const imagem = resultado.assets[0];
 
-      if (!identificarTipoImagem(imagem)) {
-        Alert.alert('Formato nao aceito', 'Selecione uma imagem JPG, PNG ou WebP.');
-        return;
-      }
-      if (imagem.fileSize != null && imagem.fileSize > TAMANHO_MAXIMO_FOTO) {
-        Alert.alert('Foto muito grande', 'O arquivo deve ter no maximo 5 MB.');
-        return;
-      }
-
+      validarFotoSolucao(imagem);
       setFotoSelecionada(imagem);
-    } catch {
-      Alert.alert('Erro', 'Nao foi possivel selecionar a fotografia.');
+    } catch (erro) {
+      const mensagem = erro instanceof Error
+        ? erro.message
+        : 'Nao foi possivel selecionar a fotografia.';
+      Alert.alert('Fotografia', mensagem);
     }
   }
 
@@ -261,34 +226,22 @@ export default function DetalhesChamadoScreen() {
       Alert.alert('Foto obrigatoria', 'Tire uma foto ou selecione uma imagem da solucao.');
       return;
     }
-    const formato = identificarTipoImagem(fotoSelecionada);
-    if (!formato) {
-      Alert.alert('Formato nao aceito', 'Selecione uma imagem JPG, PNG ou WebP.');
+    try {
+      validarFotoSolucao(fotoSelecionada);
+    } catch (erro) {
+      Alert.alert('Foto invalida', erro instanceof Error ? erro.message : 'Foto invalida.');
       return;
     }
 
+    const fotoConfirmada = fotoSelecionada;
     Alert.alert('Enviar para validacao', 'Deseja enviar a foto e solicitar a validacao do atendente?', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Enviar',
-        onPress: () => {
-          const dados = new FormData();
-          // React Native aceita objetos com uri, name e type em FormData.
-          // A conversao de tipo e necessaria apenas para a tipagem do TypeScript.
-          dados.append('foto', {
-            uri: fotoSelecionada.uri,
-            name: `solucao_${chamadoId}.${formato.extensao}`,
-            type: formato.mime,
-          } as unknown as Blob);
-
-          void executarAcao(
-            () => api.post<ChamadoResponseDTO>(
-              `/api/chamados/${chamadoId}/finalizar`,
-              dados
-            ),
-            'Solucao enviada! Aguarde a validacao do atendente.'
-          );
-        },
+        onPress: () => void executarAcao(
+          () => solicitarFinalizacao(chamadoId, fotoConfirmada),
+          'Solucao enviada! Aguarde a validacao do atendente.'
+        ),
       },
     ]);
   }
@@ -365,7 +318,7 @@ export default function DetalhesChamadoScreen() {
 
             {chamado ? (
               <>
-                <Text style={styles.protocolo}>Chamado #{chamado.id}</Text>
+                <Text style={styles.protocolo}>Protocolo: {chamado.protocolo}</Text>
                 <Text style={styles.titulo}>{chamado.titulo}</Text>
                 <Text style={styles.status}>Status: {chamado.status.replace(/_/g, ' ')}</Text>
 
@@ -411,10 +364,7 @@ export default function DetalhesChamadoScreen() {
                     <View key={foto.id} style={styles.secaoInterna}>
                       <Text>Foto {indice + 1} - {formatarData(foto.dataEnvio)}</Text>
                       <ImagemRemota
-                        source={{
-                          uri: `${api.defaults.baseURL?.replace(/\/$/, '')}/api/chamados/${chamadoId}/fotos/${foto.id}/imagem`,
-                          headers: { Authorization: `Bearer ${tokenFotos}` },
-                        }}
+                        source={obterFonteFoto(chamadoId, foto.id, tokenFotos)}
                         style={styles.fotoProblema}
                         contentFit="contain"
                         cachePolicy="none"
@@ -436,7 +386,7 @@ export default function DetalhesChamadoScreen() {
                     <Pressable
                       style={[styles.botaoPrincipal, processando && styles.desabilitado]}
                       disabled={processando}
-                      onPress={iniciarExecucao}
+                      onPress={iniciarExecucaoFunc}
                     >
                       <Text style={styles.textoPrincipal}>Iniciar execucao</Text>
                     </Pressable>

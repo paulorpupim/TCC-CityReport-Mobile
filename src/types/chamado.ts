@@ -15,6 +15,7 @@ export type StatusChamado =
 
 export type ChamadoResponseDTO = {
   id: number;
+  protocolo: string;
   titulo: string;
   descricao: string;
   categoria: string;
@@ -25,4 +26,11 @@ export type ChamadoResponseDTO = {
   prioridadeOficial: Prioridade | null;
   status: StatusChamado;
   dataCriacao: string;
+};
+
+// Metadados das imagens. Os arquivos sao obtidos separadamente com JWT.
+export type FotoChamadoResponseDTO = {
+  id: number;
+  tipo: 'PROBLEMA' | 'SOLUCAO';
+  dataEnvio: string;
 };

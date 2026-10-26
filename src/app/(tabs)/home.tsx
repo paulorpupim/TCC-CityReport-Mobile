@@ -1,4 +1,4 @@
-import { api } from '@/services/api';
+import { listarChamados } from '@/services/chamadoService';
 import { encerrarSessaoSeInvalida, obterToken, sair } from '@/services/authService';
 import type { ChamadoResponseDTO } from '@/types/chamado';
 import axios from 'axios';
@@ -41,8 +41,8 @@ export default function HomeScreen() {
         return;
       }
 
-      const resposta = await api.get<ChamadoResponseDTO[]>('/api/chamados');
-      setChamados(resposta.data);
+      const lista = await listarChamados();
+      setChamados(lista);
     } catch (error) {
       if (await encerrarSessaoSeInvalida(error)) {
         router.replace('/login');
@@ -126,9 +126,9 @@ export default function HomeScreen() {
                 params: { id: String(item.id) },
               })}
               accessibilityRole="button"
-              accessibilityLabel={`Abrir chamado numero ${item.id}`}
+              accessibilityLabel={`Abrir chamado protocolo ${item.protocolo}`}
             >
-              <Text style={styles.protocolo}>Chamado #{item.id}</Text>
+              <Text style={styles.protocolo}>Protocolo: {item.protocolo}</Text>
               <Text style={styles.tituloChamado}>{item.titulo}</Text>
               <Text>Categoria: {item.categoria}</Text>
               <Text>Status: {item.status.replace(/_/g, ' ')}</Text>
