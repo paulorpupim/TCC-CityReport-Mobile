@@ -1,14 +1,16 @@
 import { encerrarSessaoSeInvalida, obterToken, sair } from '@/services/authService';
 import {
   buscarChamado,
+  listarAtualizacoes,
   iniciarExecucao,
   listarFotosProblema,
   obterFonteFoto,
   registrarImpedimento,
+  registrarObservacao,
   solicitarFinalizacao,
   validarFotoSolucao
 } from '@/services/chamadoService';
-import type { ChamadoResponseDTO, FotoChamadoResponseDTO } from '@/types/chamado';
+import type { AtualizacaoChamadoDTO, ChamadoResponseDTO, FotoChamadoResponseDTO } from '@/types/chamado';
 import axios from 'axios';
 import { Image as ImagemRemota } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -70,6 +72,9 @@ export default function DetalhesChamadoScreen() {
   const [erroFotos, setErroFotos] = useState('');
   const [mostrarImpedimento, setMostrarImpedimento] = useState(false);
   const [justificativa, setJustificativa] = useState('');
+  const [observacao, setObservacao] = useState('');
+  const [atualizacoes, setAtualizacoes] = useState<AtualizacaoChamadoDTO[]>([]);
+  const [erroAtualizacoes, setErroAtualizacoes] = useState('');
   const [fotoSelecionada, setFotoSelecionada] =
     useState<ImagePicker.ImagePickerAsset | null>(null);
 
@@ -84,12 +89,25 @@ export default function DetalhesChamadoScreen() {
     else setCarregando(true);
     setErro('');
     setErroFotos('');
+    setErroAtualizacoes('');
+    setAtualizacoes([]);
     setFotosProblema([]);
     setTokenFotos(null);
 
     try {
       const detalhes = await buscarChamado(chamadoId);
       setChamado(detalhes);
+
+      // As atualizacoes nao sao o historico completo. Falha aqui nao bloqueia as acoes.
+      try {
+        setAtualizacoes(await listarAtualizacoes(chamadoId));
+      } catch (falhaAtualizacoes) {
+        if (await encerrarSessaoSeInvalida(falhaAtualizacoes)) {
+          router.replace('/login');
+          return;
+        }
+        setErroAtualizacoes('Nao foi possivel consultar as atualizacoes. Atualize a tela.');
+      }
 
       // Metadados e imagens ficam separados do DTO do chamado.
       // Se as fotos falharem, as operacoes do chamado continuam disponiveis.
@@ -127,6 +145,20 @@ export default function DetalhesChamadoScreen() {
     void carregarChamado();
   }, [carregarChamado]));
 
+  // Atualiza apenas os destaques apos salvar uma acao, sem recarregar as fotos.
+  async function atualizarAtualizacoes() {
+    try {
+      setAtualizacoes(await listarAtualizacoes(chamadoId));
+      setErroAtualizacoes('');
+    } catch (falha) {
+      if (await encerrarSessaoSeInvalida(falha)) {
+        router.replace('/login');
+        return;
+      }
+      setErroAtualizacoes('Nao foi possivel atualizar as informacoes. Arraste a tela para atualizar.');
+    }
+  }
+
   // Centraliza o tratamento de respostas e erros das operacoes.
   async function executarAcao(
     requisicao: () => Promise<ChamadoResponseDTO>,
@@ -141,6 +173,7 @@ export default function DetalhesChamadoScreen() {
       setMostrarImpedimento(false);
       setJustificativa('');
       setFotoSelecionada(null);
+      void atualizarAtualizacoes();
       Alert.alert('Sucesso', mensagemSucesso);
     } catch (falha) {
       if (await encerrarSessaoSeInvalida(falha)) {
@@ -164,6 +197,37 @@ export default function DetalhesChamadoScreen() {
         ),
       },
     ]);
+  }
+
+  async function salvarObservacao() {
+    if (processando) return;
+
+    const texto = observacao.trim();
+    if (!texto) {
+      Alert.alert('Observacao obrigatoria', 'Descreva o servico realizado.');
+      return;
+    }
+    if (texto.length > 1700) {
+      Alert.alert('Texto muito longo', 'Utilize no maximo 1700 caracteres.');
+      return;
+    }
+
+    setProcessando(true);
+    try {
+      const chamadoAtualizado = await registrarObservacao(chamadoId, texto);
+      setChamado(chamadoAtualizado);
+      setObservacao('');
+      void atualizarAtualizacoes();
+      Alert.alert('Observacao registrada', 'O registro foi salvo no historico do chamado.');
+    } catch (falha) {
+      if (await encerrarSessaoSeInvalida(falha)) {
+        router.replace('/login');
+        return;
+      }
+      Alert.alert('Nao foi possivel registrar', mensagemDeErro(falha));
+    } finally {
+      setProcessando(false);
+    }
   }
 
   function confirmarImpedimento() {
@@ -331,6 +395,22 @@ export default function DetalhesChamadoScreen() {
                   <Text>Data de criacao: {formatarData(chamado.dataCriacao)}</Text>
                 </View>
 
+
+                {(atualizacoes.length > 0 || erroAtualizacoes) ? (
+                  <View style={styles.bloco}>
+                    <Text style={styles.subtitulo}>Atualizacoes do chamado</Text>
+                    <Text>Ultimo registro de cada assunto ligado a execucao.</Text>
+                    {erroAtualizacoes ? <Text style={styles.erro}>{erroAtualizacoes}</Text> : null}
+                    {atualizacoes.map((atualizacao) => (
+                      <View key={atualizacao.tipo} style={styles.cartaoAtualizacao}>
+                        <Text style={styles.tituloAtualizacao}>{atualizacao.titulo}</Text>
+                        <Text style={styles.textoAtualizacao}>{atualizacao.texto}</Text>
+                        <Text style={styles.dataAtualizacao}>{formatarData(atualizacao.dataHora)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
                 <View style={styles.bloco}>
                   <Text style={styles.subtitulo}>Localizacao</Text>
                   <Text>Endereco: {chamado.endereco || 'Nao informado'}</Text>
@@ -396,6 +476,36 @@ export default function DetalhesChamadoScreen() {
                 {emExecucao ? (
                   <View style={styles.bloco}>
                     <Text style={styles.subtitulo}>Execucao em andamento</Text>
+
+                    <View style={styles.secaoInterna}>
+                      <Text style={styles.subtitulo}>Observacoes do servico</Text>
+                      <Text>
+                        Descreva o trabalho realizado. Voce pode registrar varias observacoes
+                        sem alterar o status do chamado.
+                      </Text>
+                      <TextInput
+                        style={[styles.campo, styles.campoMultilinha]}
+                        multiline
+                        maxLength={1700}
+                        value={observacao}
+                        onChangeText={setObservacao}
+                        placeholder="Ex.: realizada a limpeza e preparado o local para o reparo"
+                        editable={!processando}
+                        accessibilityLabel="Observacao sobre o servico realizado"
+                      />
+                      <Text style={styles.contadorCaracteres}>{observacao.length}/1700 caracteres</Text>
+                      <Pressable
+                        style={[
+                          styles.botaoPrincipal,
+                          (processando || !observacao.trim()) && styles.desabilitado,
+                        ]}
+                        disabled={processando || !observacao.trim()}
+                        onPress={() => void salvarObservacao()}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.textoPrincipal}>Salvar observacao</Text>
+                      </Pressable>
+                    </View>
 
                     <Pressable
                       style={styles.botaoSecundario}
@@ -502,10 +612,18 @@ const styles = StyleSheet.create({
   status: { fontWeight: '600' },
   bloco: { borderWidth: 1, borderColor: '#CCCCCC', borderRadius: 6, padding: 15, gap: 10 },
   subtitulo: { fontWeight: 'bold', fontSize: 17 },
+  cartaoAtualizacao: {
+    borderWidth: 1, borderColor: '#CCCCCC', borderRadius: 6,
+    padding: 12, gap: 7,
+  },
+  tituloAtualizacao: { fontWeight: '600' },
+  textoAtualizacao: { lineHeight: 21 },
+  dataAtualizacao: { color: '#555555', fontSize: 12 },
   erro: { color: '#BF0811' },
   aviso: { borderWidth: 1, borderColor: '#CCCCCC', borderRadius: 6, padding: 14 },
   campo: { borderWidth: 1, borderColor: '#999999', borderRadius: 6, padding: 12 },
   campoMultilinha: { minHeight: 100, textAlignVertical: 'top' },
+  contadorCaracteres: { color: '#555555', fontSize: 12, textAlign: 'right' },
   secaoInterna: { gap: 8 },
   botaoPrincipal: {
     backgroundColor: '#1F4892', borderRadius: 6, padding: 14,

@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { ChamadoResponseDTO, FotoChamadoResponseDTO } from '@/types/chamado';
+import type { AtualizacaoChamadoDTO, ChamadoResponseDTO, FotoChamadoResponseDTO } from '@/types/chamado';
 
 // As telas chamam estas funcoes, sem precisar conhecer as rotas da API.
 // O interceptor de api.ts ja envia o JWT nas requisicoes.
@@ -11,6 +11,12 @@ export async function listarChamados(): Promise<ChamadoResponseDTO[]> {
 
 export async function buscarChamado(id: number): Promise<ChamadoResponseDTO> {
   const resposta = await api.get<ChamadoResponseDTO>(`/api/chamados/${id}`);
+  return resposta.data;
+}
+
+// Consulta apenas as ultimas atualizacoes de execucao autorizadas ao funcionario.
+export async function listarAtualizacoes(id: number): Promise<AtualizacaoChamadoDTO[]> {
+  const resposta = await api.get<AtualizacaoChamadoDTO[]>(`/api/chamados/${id}/atualizacoes`);
   return resposta.data;
 }
 
@@ -26,6 +32,18 @@ export async function registrarImpedimento(
   const resposta = await api.post<ChamadoResponseDTO>(
     `/api/chamados/${id}/impedimento`,
     { justificativa }
+  );
+  return resposta.data;
+}
+
+// Registra uma observacao no historico sem alterar o status do chamado.
+export async function registrarObservacao(
+  id: number,
+  observacao: string
+): Promise<ChamadoResponseDTO> {
+  const resposta = await api.post<ChamadoResponseDTO>(
+    `/api/chamados/${id}/observacoes`,
+    { observacao }
   );
   return resposta.data;
 }

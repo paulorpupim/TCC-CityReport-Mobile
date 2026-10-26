@@ -28,7 +28,13 @@ export type ChamadoResponseDTO = {
   dataCriacao: string;
 };
 
-// Metadados das imagens. Os arquivos sao obtidos separadamente com JWT.
+export type AtualizacaoChamadoDTO = {
+  tipo: 'IMPEDIMENTO' | 'REPROVACAO_EXECUCAO' | 'OBSERVACAO_EXECUCAO';
+  titulo: string;
+  texto: string;
+  dataHora: string;
+};
+
 export type FotoChamadoResponseDTO = {
   id: number;
   tipo: 'PROBLEMA' | 'SOLUCAO';
