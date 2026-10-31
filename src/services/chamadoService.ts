@@ -36,18 +36,6 @@ export async function registrarImpedimento(
   return resposta.data;
 }
 
-// Registra uma observacao no historico sem alterar o status do chamado.
-export async function registrarObservacao(
-  id: number,
-  observacao: string
-): Promise<ChamadoResponseDTO> {
-  const resposta = await api.post<ChamadoResponseDTO>(
-    `/api/chamados/${id}/observacoes`,
-    { observacao }
-  );
-  return resposta.data;
-}
-
 export async function listarFotosProblema(id: number): Promise<FotoChamadoResponseDTO[]> {
   const resposta = await api.get<FotoChamadoResponseDTO[]>(`/api/chamados/${id}/fotos`);
   return resposta.data;
@@ -106,11 +94,17 @@ export function validarFotoSolucao(foto: ArquivoFoto): void {
   }
 }
 
+// Envia a foto obrigatoria e a observacao opcional na MESMA requisicao.
 export async function solicitarFinalizacao(
   id: number,
-  foto: ArquivoFoto
+  foto: ArquivoFoto,
+  observacao = ''
 ): Promise<ChamadoResponseDTO> {
   validarFotoSolucao(foto);
+  const textoObservacao = observacao.trim();
+  if (textoObservacao.length > 1700) {
+    throw new Error('A observacao deve ter no maximo 1700 caracteres.');
+  }
   const formato = identificarFormatoImagem(foto)!;
   const dados = new FormData();
 
@@ -121,6 +115,9 @@ export async function solicitarFinalizacao(
     name: `solucao_${id}.${formato.extensao}`,
     type: formato.mime,
   } as unknown as Blob);
+  if (textoObservacao) {
+    dados.append('observacao', textoObservacao);
+  }
 
   // Deixar o Axios configurar o multipart/form-data com seu boundary.
   const resposta = await api.post<ChamadoResponseDTO>(

@@ -6,7 +6,6 @@ import {
   listarFotosProblema,
   obterFonteFoto,
   registrarImpedimento,
-  registrarObservacao,
   solicitarFinalizacao,
   validarFotoSolucao
 } from '@/services/chamadoService';
@@ -173,6 +172,7 @@ export default function DetalhesChamadoScreen() {
       setMostrarImpedimento(false);
       setJustificativa('');
       setFotoSelecionada(null);
+      setObservacao('');
       void atualizarAtualizacoes();
       Alert.alert('Sucesso', mensagemSucesso);
     } catch (falha) {
@@ -197,37 +197,6 @@ export default function DetalhesChamadoScreen() {
         ),
       },
     ]);
-  }
-
-  async function salvarObservacao() {
-    if (processando) return;
-
-    const texto = observacao.trim();
-    if (!texto) {
-      Alert.alert('Observacao obrigatoria', 'Descreva o servico realizado.');
-      return;
-    }
-    if (texto.length > 1700) {
-      Alert.alert('Texto muito longo', 'Utilize no maximo 1700 caracteres.');
-      return;
-    }
-
-    setProcessando(true);
-    try {
-      const chamadoAtualizado = await registrarObservacao(chamadoId, texto);
-      setChamado(chamadoAtualizado);
-      setObservacao('');
-      void atualizarAtualizacoes();
-      Alert.alert('Observacao registrada', 'O registro foi salvo no historico do chamado.');
-    } catch (falha) {
-      if (await encerrarSessaoSeInvalida(falha)) {
-        router.replace('/login');
-        return;
-      }
-      Alert.alert('Nao foi possivel registrar', mensagemDeErro(falha));
-    } finally {
-      setProcessando(false);
-    }
   }
 
   function confirmarImpedimento() {
@@ -298,16 +267,23 @@ export default function DetalhesChamadoScreen() {
     }
 
     const fotoConfirmada = fotoSelecionada;
-    Alert.alert('Enviar para validacao', 'Deseja enviar a foto e solicitar a validacao do atendente?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Enviar',
-        onPress: () => void executarAcao(
-          () => solicitarFinalizacao(chamadoId, fotoConfirmada),
-          'Solucao enviada! Aguarde a validacao do atendente.'
-        ),
-      },
-    ]);
+    const observacaoConfirmada = observacao.trim();
+    Alert.alert(
+      'Enviar para validacao',
+      observacaoConfirmada
+        ? 'Deseja enviar a foto e a observacao para validacao do atendente?'
+        : 'Deseja enviar a foto para validacao do atendente?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Enviar',
+          onPress: () => void executarAcao(
+            () => solicitarFinalizacao(chamadoId, fotoConfirmada, observacaoConfirmada),
+            'Solucao enviada! Aguarde a validacao do atendente.'
+          ),
+        },
+      ]
+    );
   }
 
   // Abre o trajeto ate a localizacao registrada no chamado.
@@ -477,36 +453,6 @@ export default function DetalhesChamadoScreen() {
                   <View style={styles.bloco}>
                     <Text style={styles.subtitulo}>Execucao em andamento</Text>
 
-                    <View style={styles.secaoInterna}>
-                      <Text style={styles.subtitulo}>Observacoes do servico</Text>
-                      <Text>
-                        Descreva o trabalho realizado. Voce pode registrar varias observacoes
-                        sem alterar o status do chamado.
-                      </Text>
-                      <TextInput
-                        style={[styles.campo, styles.campoMultilinha]}
-                        multiline
-                        maxLength={1700}
-                        value={observacao}
-                        onChangeText={setObservacao}
-                        placeholder="Ex.: realizada a limpeza e preparado o local para o reparo"
-                        editable={!processando}
-                        accessibilityLabel="Observacao sobre o servico realizado"
-                      />
-                      <Text style={styles.contadorCaracteres}>{observacao.length}/1700 caracteres</Text>
-                      <Pressable
-                        style={[
-                          styles.botaoPrincipal,
-                          (processando || !observacao.trim()) && styles.desabilitado,
-                        ]}
-                        disabled={processando || !observacao.trim()}
-                        onPress={() => void salvarObservacao()}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.textoPrincipal}>Salvar observacao</Text>
-                      </Pressable>
-                    </View>
-
                     <Pressable
                       style={styles.botaoSecundario}
                       disabled={processando}
@@ -538,7 +484,7 @@ export default function DetalhesChamadoScreen() {
                     ) : null}
 
                     <Text style={styles.subtitulo}>Solicitar finalizacao</Text>
-                    <Text>Envie uma nova foto mostrando a solucao do problema.</Text>
+                    <Text>Envie uma nova foto da solucao. Se necessario, descreva detalhes do servico realizado.</Text>
                     <View style={styles.acoesFoto}>
                       <Pressable
                         style={styles.botaoSecundario}
@@ -567,6 +513,22 @@ export default function DetalhesChamadoScreen() {
                         <Text>Foto selecionada.</Text>
                       </View>
                     ) : null}
+
+                    <View style={styles.secaoInterna}>
+                      <Text style={styles.subtitulo}>Observacao do servico (opcional)</Text>
+                      <TextInput
+                        style={[styles.campo, styles.campoMultilinha]}
+                        multiline
+                        maxLength={1700}
+                        value={observacao}
+                        onChangeText={setObservacao}
+                        placeholder="Ex.: o reparo foi concluido, mas sera preciso acompanhar a area nos proximos dias"
+                        editable={!processando}
+                        accessibilityLabel="Observacao opcional para a validacao do servico"
+                      />
+                      <Text style={styles.contadorCaracteres}>{observacao.length}/1700 caracteres</Text>
+                      <Text>A observacao sera registrada no historico ao enviar a finalizacao.</Text>
+                    </View>
 
                     <Pressable
                       style={[
