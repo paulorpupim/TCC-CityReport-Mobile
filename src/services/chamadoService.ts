@@ -9,6 +9,26 @@ export async function listarChamados(): Promise<ChamadoResponseDTO[]> {
   return resposta.data;
 }
 
+// A home carrega apenas o chamado em execucao (204 quando nao houver nenhum).
+export async function buscarChamadoEmExecucao(): Promise<ChamadoResponseDTO | null> {
+  const resposta = await api.get<ChamadoResponseDTO>('/api/chamados/em-execucao');
+  return resposta.status === 204 || !resposta.data ? null : resposta.data;
+}
+
+// A fila so e carregada ao abrir a tela correspondente. O backend ja ordena
+// por prioridade oficial: CRITICA, ALTA, MEDIA e BAIXA.
+export async function listarChamadosAtribuidos(): Promise<ChamadoResponseDTO[]> {
+  const resposta = await api.get<ChamadoResponseDTO[]>('/api/chamados/atribuidos');
+  return resposta.data;
+}
+
+// A consulta dos concluidos so acontece ao abrir o historico, em ordem de
+// dataConclusao decrescente (definida quando o atendente aprova a execucao).
+export async function listarChamadosConcluidos(): Promise<ChamadoResponseDTO[]> {
+  const resposta = await api.get<ChamadoResponseDTO[]>('/api/chamados/concluidos');
+  return resposta.data;
+}
+
 export async function buscarChamado(id: number): Promise<ChamadoResponseDTO> {
   const resposta = await api.get<ChamadoResponseDTO>(`/api/chamados/${id}`);
   return resposta.data;

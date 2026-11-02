@@ -1,73 +1,75 @@
-import { listarChamados } from '@/services/chamadoService';
 import { encerrarSessaoSeInvalida, obterToken, sair } from '@/services/authService';
-import type { ChamadoResponseDTO } from '@/types/chamado';
+import { buscarChamadoEmExecucao } from '@/services/chamadoService';
+import { cores, espacamentos, raios, sombras, tipografia } from '@/styles/theme';
+import type { ChamadoResponseDTO, Prioridade } from '@/types/chamado';
 import axios from 'axios';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
+  ActivityIndicator, Pressable, RefreshControl, ScrollView,
+  StyleSheet, Text, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+const nomePrioridade: Record<Prioridade, string> = {
+  CRITICA: 'Crítica', ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa',
+};
+
+function corPrioridade(prioridade: Prioridade | null): string {
+  switch (prioridade) {
+    case 'CRITICA': return cores.vermelho;
+    case 'ALTA': return '#C36A05';
+    case 'MEDIA': return '#987000';
+    case 'BAIXA': return '#087E59';
+    default: return cores.textoSecundario;
+  }
+}
+
 export default function HomeScreen() {
   const router = useRouter();
-  const [chamados, setChamados] = useState<ChamadoResponseDTO[]>([]);
+  const [emExecucao, setEmExecucao] = useState<ChamadoResponseDTO | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [atualizando, setAtualizando] = useState(false);
   const [erro, setErro] = useState('');
 
-  // Carrega apenas os chamados do funcionario autenticado.
-  // O backend usa o JWT e identifica o funcionario automaticamente.
-  const carregarChamados = useCallback(async (atualizacao = false) => {
-    if (atualizacao) {
-      setAtualizando(true);
-    } else {
-      setCarregando(true);
-    }
-
+  const carregar = useCallback(async (atualizacao = false, ativo: () => boolean = ()  => true) => {
+    if (atualizacao) setAtualizando(true);
+    else setCarregando(true);
     setErro('');
-
     try {
       const token = await obterToken();
-
       if (!token) {
-        router.replace('/login');
+        if (ativo()) router.replace('/login');
         return;
       }
-
-      const lista = await listarChamados();
-      setChamados(lista);
-    } catch (error) {
-      if (await encerrarSessaoSeInvalida(error)) {
-        router.replace('/login');
+      const resultado = await buscarChamadoEmExecucao();
+      if (ativo()) setEmExecucao(resultado);
+    } catch (falha) {
+      if (await encerrarSessaoSeInvalida(falha)) {
+        if (ativo()) router.replace('/login');
         return;
       }
-
-      if (axios.isAxiosError(error) && error.response?.status === 403) {
-        setErro('Sua conta nao tem permissao para consultar os chamados.');
-      } else if (axios.isAxiosError(error) && !error.response) {
-        setErro('Nao foi possivel conectar ao servidor. Confira o Wi-Fi e o Spring Boot.');
-      } else {
-        setErro('Nao foi possivel carregar os chamados. Tente novamente.');
+      if (ativo()) {
+        setEmExecucao(null);
+        setErro(axios.isAxiosError(falha) && !falha.response
+          ? 'Não foi possível conectar ao servidor. Confira sua conexão e o Spring Boot.'
+          : 'Não foi possível consultar o atendimento em execução.');
       }
     } finally {
-      setCarregando(false);
-      setAtualizando(false);
+      if (ativo()) { setCarregando(false); setAtualizando(false); }
     }
   }, [router]);
 
-  // Atualiza a lista quando a tela recebe o foco.
-  useFocusEffect(
-    useCallback(() => {
-      void carregarChamados();
-    }, [carregarChamados])
-  );
+  // Atualiza somente o atendimento atual quando voltar de detalhes ou de uma lista.
+  useFocusEffect(useCallback(() => {
+    let ativo = true;
+    void carregar(false, () => ativo);
+    return () => { ativo = false; };
+  }, [carregar]));
+
+  function abrirChamado(id: number) {
+    router.push({ pathname: '/chamados/[id]', params: { id: String(id) } });
+  }
 
   async function fazerLogout() {
     await sair();
@@ -75,143 +77,162 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.tela}>
+    <SafeAreaView style={styles.tela} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.cabecalho}>
         <View style={styles.titulos}>
-          <Text style={styles.titulo}>Meus chamados</Text>
-          <Text>Servicos atribuidos a voce</Text>
+          <Text style={styles.marca}>CITYREPORT <Text style={styles.marcaSecundaria}>• FUNCIONÁRIO</Text></Text>
+          <Text style={styles.titulo}>Meus atendimentos</Text>
+          <Text style={styles.subtitulo}>Gerencie suas atividades de campo.</Text>
         </View>
-
-        <Pressable
-          style={styles.botaoSair}
-          onPress={() => void fazerLogout()}
-          accessibilityRole="button"
-          accessibilityLabel="Sair da conta"
-        >
+        <Pressable style={({ pressed }) => [styles.botaoSair, pressed && styles.botaoSairPressionado]}
+          accessibilityRole="button" accessibilityLabel="Sair da conta"
+          onPress={() => void fazerLogout()}>
           <Text style={styles.textoSair}>Sair</Text>
         </Pressable>
       </View>
 
-      {carregando ? (
-        <View style={styles.centro}>
-          <ActivityIndicator size="large" color="#1F4892" />
-          <Text>Carregando chamados...</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={chamados}
-          keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.lista}
-          refreshControl={
-            <RefreshControl
-              refreshing={atualizando}
-              onRefresh={() => void carregarChamados(true)}
-            />
-          }
-          ListHeaderComponent={
-            erro ? <Text style={styles.erro}>{erro}</Text> : null
-          }
-          ListEmptyComponent={
-            erro ? null : (
-              <Text style={styles.vazio}>
-                Nenhum chamado atribuido a voce no momento.
-              </Text>
-            )
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.cartao}
-              onPress={() => router.push({
-                pathname: '/chamados/[id]',
-                params: { id: String(item.id) },
-              })}
-              accessibilityRole="button"
-              accessibilityLabel={`Abrir chamado protocolo ${item.protocolo}`}
-            >
-              <Text style={styles.protocolo}>Protocolo: {item.protocolo}</Text>
-              <Text style={styles.tituloChamado}>{item.titulo}</Text>
-              <Text>Categoria: {item.categoria}</Text>
-              <Text>Status: {item.status.replace(/_/g, ' ')}</Text>
-              <Text>
-                Prioridade: {item.prioridadeOficial ?? 'Nao definida'}
-              </Text>
-              <Text>Endereco: {item.endereco || 'Nao informado'}</Text>
-              <Text style={styles.linkDetalhes}>Ver detalhes</Text>
+      <ScrollView contentContainerStyle={styles.conteudo} showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={atualizando}
+          onRefresh={() => void carregar(true)} tintColor={cores.link} colors={[cores.link]} />}>
+        <View style={[styles.secao, styles.secaoExecucao]}>
+          <View style={styles.textosSecao}>
+            <Text style={[styles.indice, { color: cores.link }]}>01 · ATENDIMENTO ATUAL</Text>
+            <Text style={styles.tituloSecao}>Em execução</Text>
+            <Text style={styles.descricaoSecao}>O serviço que você está realizando agora.</Text>
+          </View>
+          {carregando ? (
+            <View style={styles.centro}><ActivityIndicator color={cores.link} />
+              <Text style={styles.textoVazio}>Consultando atendimento...</Text></View>
+          ) : erro ? (
+            <View style={styles.avisoErro}>
+              <Text style={styles.textoErro}>{erro}</Text>
+              <Pressable onPress={() => void carregar()} accessibilityRole="button">
+                <Text style={styles.tentarNovamente}>Tentar novamente</Text>
+              </Pressable>
+            </View>
+          ) : emExecucao ? (
+            <Pressable onPress={() => abrirChamado(emExecucao.id)} accessibilityRole="button"
+              accessibilityLabel={`Ver chamado em execução ${emExecucao.protocolo}`}
+              style={({ pressed }) => [styles.itemChamado, pressed && styles.itemPressionado]}>
+              <View style={styles.linhaProtocolo}>
+                <Text style={styles.protocolo}>#{emExecucao.protocolo}</Text>
+                <Text style={styles.etiquetaStatus}>EM EXECUÇÃO</Text>
+              </View>
+              <Text style={styles.tituloChamado}>{emExecucao.titulo}</Text>
+              <Text style={styles.informacaoChamado}>{emExecucao.categoria}</Text>
+              {!!emExecucao.endereco?.trim() && (
+                <Text style={styles.informacaoChamado}>{emExecucao.endereco}</Text>
+              )}
+              <View style={styles.rodapeChamado}>
+                <Text style={[styles.prioridade, { color: corPrioridade(emExecucao.prioridadeOficial) }]}>
+                  Prioridade: {emExecucao.prioridadeOficial ? nomePrioridade[emExecucao.prioridadeOficial] : 'Não definida'}
+                </Text>
+                <Text style={styles.verDetalhes}>Ver detalhes  ›</Text>
+              </View>
             </Pressable>
+          ) : (
+            <View style={styles.estadoVazio}>
+              <Text style={styles.textoVazio}>Você não possui nenhum chamado em execução no momento.</Text>
+            </View>
           )}
-        />
-      )}
+        </View>
+
+        <Pressable style={({ pressed }) => [styles.cartaoNavegacao, styles.cartaoAtribuidos, pressed && styles.itemPressionado]}
+          accessibilityRole="button" accessibilityLabel="Abrir chamados atribuídos a você"
+          onPress={() => router.push('/atribuidos')}>
+          <View style={[styles.iconeCartao, { backgroundColor: cores.fundoInfo }]}>
+            <Text style={[styles.iconeTexto, { color: cores.link }]}>≡</Text>
+          </View>
+          <View style={styles.textosNavegacao}>
+            <Text style={styles.tituloNavegacao}>Atribuídos a você</Text>
+            <Text style={styles.descricaoSecao}>Veja sua fila organizada por prioridade.</Text>
+          </View>
+          <Text style={styles.seta}>›</Text>
+        </Pressable>
+
+        <Pressable style={({ pressed }) => [styles.cartaoNavegacao, styles.cartaoConcluidos, pressed && styles.itemPressionado]}
+          accessibilityRole="button" accessibilityLabel="Abrir chamados concluídos"
+          onPress={() => router.push('/concluidos')}>
+          <View style={[styles.iconeCartao, { backgroundColor: '#E7F8F1' }]}>
+            <Text style={[styles.iconeTexto, { color: '#087E59' }]}>✓</Text>
+          </View>
+          <View style={styles.textosNavegacao}>
+            <Text style={styles.tituloNavegacao}>Concluídos</Text>
+            <Text style={styles.descricaoSecao}>Consulte serviços aprovados pelo atendente.</Text>
+          </View>
+          <Text style={styles.seta}>›</Text>
+        </Pressable>
+
+        <Text style={styles.dicaAtualizacao}>Puxe a tela para baixo para atualizar o atendimento atual.</Text>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  tela: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
+  tela: { flex: 1, backgroundColor: cores.fundo },
   cabecalho: {
-    padding: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
+    paddingHorizontal: espacamentos.maior, paddingTop: espacamentos.extraGrande,
+    paddingBottom: espacamentos.extraGrande, backgroundColor: cores.marinho,
+    flexDirection: 'row', alignItems: 'flex-start', gap: espacamentos.pequeno,
   },
-  titulos: {
-    flex: 1,
-    gap: 4,
-  },
-  titulo: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
+  titulos: { flex: 1, gap: espacamentos.pequeno },
+  marca: { color: cores.ciano, fontSize: 11, letterSpacing: 1, fontWeight: '800' },
+  marcaSecundaria: { color: '#C1D1E6', fontWeight: '500' },
+  titulo: { color: cores.superficie, fontSize: tipografia.tamanhos.titulo, fontWeight: '800' },
+  subtitulo: { color: '#CCD8E8', fontSize: tipografia.tamanhos.pequeno, lineHeight: 20 },
   botaoSair: {
-    borderWidth: 1,
-    borderColor: '#999999',
-    borderRadius: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderWidth: 1, borderColor: '#66768D', borderRadius: raios.pequeno,
+    paddingHorizontal: espacamentos.medio, paddingVertical: espacamentos.pequeno,
+    marginTop: espacamentos.minimo,
   },
-  textoSair: {
-    fontWeight: '600',
+  botaoSairPressionado: { backgroundColor: cores.azulDetalhe },
+  textoSair: { color: cores.superficie, fontWeight: '700', fontSize: tipografia.tamanhos.pequeno },
+  conteudo: { padding: espacamentos.maior, paddingBottom: 48, gap: espacamentos.grande },
+  secao: {
+    backgroundColor: cores.superficie, borderRadius: raios.grande, borderTopWidth: 4,
+    borderWidth: 1, borderColor: cores.borda, padding: espacamentos.grande,
+    gap: espacamentos.grande, ...sombras.cartao,
   },
-  lista: {
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-    flexGrow: 1,
+  secaoExecucao: { borderTopColor: cores.link },
+  textosSecao: { gap: espacamentos.pequeno },
+  indice: { fontSize: tipografia.tamanhos.rodape, letterSpacing: 0.9, fontWeight: '800' },
+  tituloSecao: { color: cores.texto, fontSize: 20, lineHeight: 25, fontWeight: '800' },
+  descricaoSecao: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar, lineHeight: 19 },
+  centro: { paddingVertical: 12, alignItems: 'center', gap: espacamentos.pequeno },
+  avisoErro: { backgroundColor: cores.erroFundo, borderColor: cores.erroBorda, borderWidth: 1,
+    borderRadius: raios.medio, padding: espacamentos.grande, gap: espacamentos.pequeno },
+  textoErro: { color: cores.erroTexto, lineHeight: 21 },
+  tentarNovamente: { color: cores.link, fontWeight: '700' },
+  itemChamado: {
+    borderWidth: 1, borderColor: cores.borda, backgroundColor: '#FAFCFF',
+    borderRadius: raios.medio, padding: espacamentos.grande, gap: espacamentos.pequeno,
   },
-  centro: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  erro: {
-    color: '#BF0811',
-    marginBottom: 16,
-  },
-  vazio: {
-    textAlign: 'center',
-    marginTop: 30,
-  },
-  cartao: {
-    borderWidth: 1,
-    borderColor: '#CCCCCC',
-    borderRadius: 6,
-    padding: 16,
-    marginBottom: 12,
-    gap: 6,
-  },
-  protocolo: {
-    fontSize: 12,
-  },
-  tituloChamado: {
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  linkDetalhes: {
-    color: '#1F4892',
-    fontWeight: '600',
-    marginTop: 4,
-  },
+  itemPressionado: { backgroundColor: cores.fundoInfo },
+  linhaProtocolo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexWrap: 'wrap', gap: espacamentos.pequeno },
+  protocolo: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar, fontWeight: '600' },
+  etiquetaStatus: { color: cores.link, fontSize: 11, fontWeight: '800' },
+  tituloChamado: { color: cores.texto, fontSize: tipografia.tamanhos.corpo, fontWeight: '700', lineHeight: 23 },
+  informacaoChamado: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar },
+  rodapeChamado: { marginTop: espacamentos.minimo, borderTopWidth: 1, borderColor: cores.borda,
+    paddingTop: espacamentos.medio, flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', flexWrap: 'wrap', gap: espacamentos.pequeno },
+  prioridade: { fontSize: tipografia.tamanhos.auxiliar, fontWeight: '700' },
+  verDetalhes: { color: cores.link, fontSize: tipografia.tamanhos.auxiliar, fontWeight: '700' },
+  estadoVazio: { backgroundColor: cores.fundo, borderRadius: raios.medio, padding: espacamentos.grande },
+  textoVazio: { color: cores.textoSecundario, lineHeight: 21, fontSize: tipografia.tamanhos.pequeno },
+  cartaoNavegacao: { backgroundColor: cores.superficie, borderWidth: 1, borderColor: cores.borda,
+    borderRadius: raios.grande, padding: espacamentos.grande, flexDirection: 'row',
+    alignItems: 'center', gap: espacamentos.medio, ...sombras.cartao },
+  cartaoAtribuidos: { borderLeftWidth: 4, borderLeftColor: '#A66A13' },
+  cartaoConcluidos: { borderLeftWidth: 4, borderLeftColor: '#087E59' },
+  iconeCartao: { width: 47, height: 47, borderRadius: raios.medio, alignItems: 'center', justifyContent: 'center' },
+  iconeTexto: { fontSize: 25, fontWeight: '800' },
+  textosNavegacao: { flex: 1, gap: espacamentos.minimo },
+  tituloNavegacao: { color: cores.texto, fontSize: tipografia.tamanhos.corpo, fontWeight: '800' },
+  seta: { color: cores.link, fontSize: 30, marginBottom: 3 },
+  dicaAtualizacao: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar,
+    textAlign: 'center', paddingBottom: espacamentos.pequeno },
 });

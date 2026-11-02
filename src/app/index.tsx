@@ -3,8 +3,6 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-// Ao abrir o app, verifica se existe um token salvo.
-// A validade dele sera conferida pelo backend ao consultar os chamados.
 export default function Index() {
   const router = useRouter();
 

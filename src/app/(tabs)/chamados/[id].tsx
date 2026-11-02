@@ -13,7 +13,7 @@ import type { AtualizacaoChamadoDTO, ChamadoResponseDTO, FotoChamadoResponseDTO 
 import axios from 'axios';
 import { Image as ImagemRemota } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -30,6 +30,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { cores, espacamentos, raios, sombras, tipografia } from '@/styles/theme';
+import type { Prioridade, StatusChamado } from '@/types/chamado';
 
 function mensagemDeErro(erro: unknown): string {
   if (axios.isAxiosError(erro)) {
@@ -55,6 +57,22 @@ function formatarData(valor: string): string {
   const data = new Date(valor);
   return Number.isNaN(data.getTime()) ? valor : data.toLocaleString('pt-BR');
 }
+
+
+const rotulosPrioridade: Record<Prioridade, string> = {
+  CRITICA: 'Crítica', ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa',
+};
+
+const coresPrioridade: Record<Prioridade, string> = {
+  CRITICA: cores.vermelho, ALTA: '#C36A05', MEDIA: '#987000', BAIXA: '#087E59',
+};
+
+const rotulosStatus: Record<StatusChamado, string> = {
+  ENVIADO: 'Enviado', AGUARDANDO_INFORMACOES: 'Aguardando informações',
+  ABERTO: 'Em aberto', ATRIBUIDO: 'Atribuído', EM_EXECUCAO: 'Em execução',
+  PENDENTE: 'Pendente', AGUARDANDO_VALIDACAO: 'Aguardando validação',
+  RESOLVIDO: 'Concluído', RECUSADO: 'Recusado', CANCELADO: 'Cancelado', DUPLICADO: 'Duplicado',
+};
 
 export default function DetalhesChamadoScreen() {
   const router = useRouter();
@@ -319,285 +337,431 @@ export default function DetalhesChamadoScreen() {
 
   const emExecucao = chamado?.status === 'EM_EXECUCAO';
   const atribuido = chamado?.status === 'ATRIBUIDO';
+  const possuiCoordenadas = Boolean(
+    chamado && chamado.latitude != null && chamado.longitude != null &&
+    Number.isFinite(chamado.latitude) && Number.isFinite(chamado.longitude) &&
+    chamado.latitude >= -90 && chamado.latitude <= 90 &&
+    chamado.longitude >= -180 && chamado.longitude <= 180
+  );
+
+  const nomeStatus = chamado ? rotulosStatus[chamado.status] : '';
+  const prioridade = chamado?.prioridadeOficial ?? null;
+  const corDestaque = prioridade ? coresPrioridade[prioridade] : cores.textoSecundario;
 
   return (
-    <SafeAreaView style={styles.tela}>
+    <SafeAreaView style={styles.tela} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ headerShown: false }} />
       <ScrollView
         contentContainerStyle={styles.conteudo}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={atualizando}
             onRefresh={() => void carregarChamado(true)}
+            colors={[cores.link]}
+            tintColor={cores.link}
           />
         }
-        keyboardShouldPersistTaps="handled"
       >
-        <Pressable
-          style={styles.botaoVoltar}
-          onPress={() => router.back()}
-          accessibilityRole="button"
-        >
-          <Text style={styles.textoVoltar}>Voltar aos chamados</Text>
-        </Pressable>
+        <View style={styles.cabecalho}>
+          <View style={styles.cabecalhoLinha}>
+            <Pressable
+              style={({ pressed }) => [styles.botaoVoltar, pressed && styles.voltarPressionado]}
+              accessibilityRole="button"
+              accessibilityLabel="Voltar para a lista de chamados"
+              onPress={() => router.back()}
+            >
+              <Text style={styles.textoVoltar}>‹  Voltar</Text>
+            </Pressable>
+            <Text style={styles.marca}>CITYREPORT · FUNCIONÁRIO</Text>
+          </View>
+          {chamado && !carregando ? (
+            <>
+              <Text style={styles.protocolo}>CHAMADO #{chamado.protocolo}</Text>
+              <Text style={styles.titulo}>{chamado.titulo}</Text>
+              <View style={styles.linhaEtiquetas}>
+                <View style={styles.etiquetaStatus}>
+                  <Text style={styles.etiquetaStatusTexto}>{nomeStatus}</Text>
+                </View>
+                <View style={styles.etiquetaPrioridade}>
+                  <View style={[styles.pontoPrioridade, { backgroundColor: corDestaque }]} />
+                  <Text style={styles.etiquetaPrioridadeTexto}>
+                    {prioridade ? `Prioridade ${rotulosPrioridade[prioridade]}` : 'Prioridade não definida'}
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.protocolo}>ATENDIMENTO DE CAMPO</Text>
+              <Text style={styles.titulo}>Detalhes do chamado</Text>
+            </>
+          )}
+        </View>
 
         {carregando ? (
-          <View style={styles.centro}>
-            <ActivityIndicator size="large" color="#1F4892" />
-            <Text>Carregando detalhes...</Text>
+          <View style={[styles.cartao, styles.carregando]}>
+            <ActivityIndicator size="large" color={cores.link} />
+            <Text style={styles.textoSecundario}>Carregando detalhes do atendimento...</Text>
           </View>
-        ) : (
+        ) : erro ? (
+          <View style={[styles.cartao, styles.cartaoErro]}>
+            <Text style={styles.tituloErro}>Não foi possível carregar</Text>
+            <Text style={styles.textoErro}>{erro}</Text>
+            <Pressable style={styles.botaoContorno} onPress={() => void carregarChamado()} accessibilityRole="button">
+              <Text style={styles.botaoContornoTexto}>Tentar novamente</Text>
+            </Pressable>
+          </View>
+        ) : chamado ? (
           <>
-            {erro ? (
-              <View style={styles.bloco}>
-                <Text style={styles.erro}>{erro}</Text>
-                <Pressable style={styles.botaoSecundario} onPress={() => void carregarChamado()}>
-                  <Text>Tentar novamente</Text>
+            {/* Ações vêm primeiro: o funcionário não precisa procurar o botão no fim da tela. */}
+            {atribuido ? (
+              <View style={[styles.cartao, styles.cartaoAcao]}>
+                <Text style={styles.rotuloSecao}>SUA PRÓXIMA AÇÃO</Text>
+                <Text style={styles.tituloCartao}>Iniciar atendimento</Text>
+                <Text style={styles.textoSecundario}>
+                  Este chamado está atribuído a você e pronto para execução.
+                </Text>
+                <Pressable
+                  style={({ pressed }) => [styles.botaoPrincipal, pressed && styles.botaoPrincipalPressionado, processando && styles.desabilitado]}
+                  disabled={processando}
+                  accessibilityRole="button"
+                  onPress={iniciarExecucaoFunc}
+                >
+                  {processando ? <ActivityIndicator color={cores.marinho} /> : (
+                    <Text style={styles.botaoPrincipalTexto}>Iniciar execução</Text>
+                  )}
                 </Pressable>
               </View>
             ) : null}
 
-            {chamado ? (
+            {emExecucao ? (
               <>
-                <Text style={styles.protocolo}>Protocolo: {chamado.protocolo}</Text>
-                <Text style={styles.titulo}>{chamado.titulo}</Text>
-                <Text style={styles.status}>Status: {chamado.status.replace(/_/g, ' ')}</Text>
+                <View style={[styles.cartao, styles.cartaoAcao]}>
+                  <Text style={styles.rotuloSecao}>ATENDIMENTO EM ANDAMENTO</Text>
+                  <Text style={styles.tituloCartao}>Solicitar finalização</Text>
+                  <Text style={styles.textoSecundario}>
+                    Registre uma fotografia do serviço realizado. Você também pode incluir uma observação para o atendente.
+                  </Text>
 
-                <View style={styles.bloco}>
-                  <Text style={styles.subtitulo}>Informacoes do problema</Text>
-                  <Text>Descricao: {chamado.descricao}</Text>
-                  <Text>Categoria: {chamado.categoria}</Text>
-                  <Text>Prioridade oficial: {chamado.prioridadeOficial ?? 'Nao definida'}</Text>
-                  <Text>Urgencia informada: {chamado.urgenciaPercebida}</Text>
-                  <Text>Data de criacao: {formatarData(chamado.dataCriacao)}</Text>
-                </View>
-
-
-                {(atualizacoes.length > 0 || erroAtualizacoes) ? (
-                  <View style={styles.bloco}>
-                    <Text style={styles.subtitulo}>Atualizacoes do chamado</Text>
-                    <Text>Ultimo registro de cada assunto ligado a execucao.</Text>
-                    {erroAtualizacoes ? <Text style={styles.erro}>{erroAtualizacoes}</Text> : null}
-                    {atualizacoes.map((atualizacao) => (
-                      <View key={atualizacao.tipo} style={styles.cartaoAtualizacao}>
-                        <Text style={styles.tituloAtualizacao}>{atualizacao.titulo}</Text>
-                        <Text style={styles.textoAtualizacao}>{atualizacao.texto}</Text>
-                        <Text style={styles.dataAtualizacao}>{formatarData(atualizacao.dataHora)}</Text>
-                      </View>
-                    ))}
+                  <Text style={styles.rotuloCampo}>Fotografia da solução <Text style={styles.obrigatorio}>*</Text></Text>
+                  <View style={styles.botoesFoto}>
+                    <Pressable
+                      style={({ pressed }) => [styles.botaoEscolhaFoto, pressed && styles.pressionado, processando && styles.desabilitado]}
+                      disabled={processando}
+                      accessibilityRole="button"
+                      onPress={() => void escolherFoto('camera')}
+                    >
+                      <Text style={styles.botaoEscolhaFotoTexto}>Tirar foto</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.botaoEscolhaFoto, pressed && styles.pressionado, processando && styles.desabilitado]}
+                      disabled={processando}
+                      accessibilityRole="button"
+                      onPress={() => void escolherFoto('galeria')}
+                    >
+                      <Text style={styles.botaoEscolhaFotoTexto}>Galeria</Text>
+                    </Pressable>
                   </View>
-                ) : null}
 
-                <View style={styles.bloco}>
-                  <Text style={styles.subtitulo}>Localizacao</Text>
-                  <Text>Endereco: {chamado.endereco || 'Nao informado'}</Text>
-                  {chamado.latitude != null && chamado.longitude != null &&
-                    Number.isFinite(chamado.latitude) && Number.isFinite(chamado.longitude) &&
-                    chamado.latitude >= -90 && chamado.latitude <= 90 &&
-                    chamado.longitude >= -180 && chamado.longitude <= 180 ? (
-                    <>
-                      <Text>Coordenadas: {chamado.latitude}, {chamado.longitude}</Text>
-                      <Pressable
-                        style={styles.botaoSecundario}
-                        accessibilityRole="button"
-                        accessibilityLabel="Abrir rota ate o chamado no aplicativo de mapas"
-                        onPress={() => void abrirNoMapa()}
-                      >
-                        <Text>Abrir rota no mapa</Text>
-                      </Pressable>
-                    </>
-                  ) : (
-                    <Text>Este chamado nao possui coordenadas para abrir o mapa.</Text>
-                  )}
-                </View>
-
-                <View style={styles.bloco}>
-                  <Text style={styles.subtitulo}>Fotografias do problema</Text>
-                  {erroFotos ? <Text style={styles.erro}>{erroFotos}</Text> : null}
-                  {!erroFotos && fotosProblema.length === 0 ? (
-                    <Text>Nenhuma fotografia do problema registrada.</Text>
-                  ) : null}
-                  {tokenFotos ? fotosProblema.map((foto, indice) => (
-                    <View key={foto.id} style={styles.secaoInterna}>
-                      <Text>Foto {indice + 1} - {formatarData(foto.dataEnvio)}</Text>
-                      <ImagemRemota
-                        source={obterFonteFoto(chamadoId, foto.id, tokenFotos)}
-                        style={styles.fotoProblema}
-                        contentFit="contain"
-                        cachePolicy="none"
-                        accessibilityLabel={`Fotografia ${indice + 1} do problema`}
-                        onError={(evento) => {
-                          // Nao registrar o JWT no console: somente o erro de carregamento.
-                          console.warn(`Falha ao exibir a fotografia ${foto.id}:`, evento.error);
-                          setErroFotos('Uma ou mais fotografias nao puderam ser exibidas. Confira o console do Expo.');
-                        }}
+                  {fotoSelecionada ? (
+                    <View style={styles.previaFotoContainer}>
+                      <Image
+                        source={{ uri: fotoSelecionada.uri }}
+                        style={styles.previaFoto}
+                        resizeMode="contain"
+                        accessibilityLabel="Fotografia selecionada para comprovar a solução"
                       />
-                    </View>
-                  )) : null}
-                </View>
-
-                {atribuido ? (
-                  <View style={styles.bloco}>
-                    <Text style={styles.subtitulo}>Execucao</Text>
-                    <Text>Este chamado esta pronto para iniciar.</Text>
-                    <Pressable
-                      style={[styles.botaoPrincipal, processando && styles.desabilitado]}
-                      disabled={processando}
-                      onPress={iniciarExecucaoFunc}
-                    >
-                      <Text style={styles.textoPrincipal}>Iniciar execucao</Text>
-                    </Pressable>
-                  </View>
-                ) : null}
-
-                {emExecucao ? (
-                  <View style={styles.bloco}>
-                    <Text style={styles.subtitulo}>Execucao em andamento</Text>
-
-                    <Pressable
-                      style={styles.botaoSecundario}
-                      disabled={processando}
-                      onPress={() => setMostrarImpedimento(!mostrarImpedimento)}
-                    >
-                      <Text>Registrar impedimento</Text>
-                    </Pressable>
-
-                    {mostrarImpedimento ? (
-                      <View style={styles.secaoInterna}>
-                        <Text>Explique o impedimento:</Text>
-                        <TextInput
-                          style={[styles.campo, styles.campoMultilinha]}
-                          multiline
-                          maxLength={1700}
-                          value={justificativa}
-                          onChangeText={setJustificativa}
-                          placeholder="Ex.: falta de materiais para realizar o servico"
-                          editable={!processando}
-                        />
-                        <Pressable
-                          style={[styles.botaoPrincipal, processando && styles.desabilitado]}
-                          disabled={processando}
-                          onPress={confirmarImpedimento}
-                        >
-                          <Text style={styles.textoPrincipal}>Confirmar impedimento</Text>
+                      <View style={styles.previaRodape}>
+                        <Text style={styles.fotoSelecionadaTexto}>✓ Foto selecionada</Text>
+                        <Pressable onPress={() => setFotoSelecionada(null)} disabled={processando} accessibilityRole="button">
+                          <Text style={styles.removerFoto}>Remover</Text>
                         </Pressable>
                       </View>
-                    ) : null}
-
-                    <Text style={styles.subtitulo}>Solicitar finalizacao</Text>
-                    <Text>Envie uma nova foto da solucao. Se necessario, descreva detalhes do servico realizado.</Text>
-                    <View style={styles.acoesFoto}>
-                      <Pressable
-                        style={styles.botaoSecundario}
-                        disabled={processando}
-                        onPress={() => void escolherFoto('camera')}
-                      >
-                        <Text>Tirar foto</Text>
-                      </Pressable>
-                      <Pressable
-                        style={styles.botaoSecundario}
-                        disabled={processando}
-                        onPress={() => void escolherFoto('galeria')}
-                      >
-                        <Text>Galeria</Text>
-                      </Pressable>
                     </View>
+                  ) : (
+                    <Text style={styles.notaFoto}>Selecione uma imagem JPG, PNG ou WebP de até 5 MB.</Text>
+                  )}
 
-                    {fotoSelecionada ? (
-                      <View style={styles.secaoInterna}>
-                        <Image
-                          source={{ uri: fotoSelecionada.uri }}
-                          style={styles.previewFoto}
-                          resizeMode="contain"
-                          accessibilityLabel="Foto selecionada como evidencia da solucao"
-                        />
-                        <Text>Foto selecionada.</Text>
-                      </View>
-                    ) : null}
+                  <Text style={styles.rotuloCampo}>Observação do serviço <Text style={styles.opcional}>(opcional)</Text></Text>
+                  <TextInput
+                    style={[styles.campo, styles.campoMultilinha]}
+                    multiline
+                    maxLength={1700}
+                    value={observacao}
+                    onChangeText={setObservacao}
+                    placeholder="Descreva detalhes do serviço realizado..."
+                    placeholderTextColor={cores.placeholder}
+                    editable={!processando}
+                    accessibilityLabel="Observação opcional do serviço"
+                  />
+                  <Text style={styles.contadorCaracteres}>{observacao.length}/1700 caracteres</Text>
+                  <Text style={styles.notaFoto}>
+                    A observação será registrada no histórico junto com a solicitação de finalização.
+                  </Text>
 
-                    <View style={styles.secaoInterna}>
-                      <Text style={styles.subtitulo}>Observacao do servico (opcional)</Text>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.botaoPrincipal,
+                      pressed && styles.botaoPrincipalPressionado,
+                      (processando || !fotoSelecionada) && styles.desabilitado,
+                    ]}
+                    disabled={processando || !fotoSelecionada}
+                    accessibilityRole="button"
+                    onPress={confirmarFinalizacao}
+                  >
+                    {processando ? <ActivityIndicator color={cores.marinho} /> : (
+                      <Text style={styles.botaoPrincipalTexto}>Enviar para validação</Text>
+                    )}
+                  </Pressable>
+                </View>
+
+                <View style={styles.cartao}>
+                  <Text style={styles.rotuloSecao}>SE HOUVER ALGUM PROBLEMA</Text>
+                  <Text style={styles.tituloCartao}>Impedimento na execução</Text>
+                  <Text style={styles.textoSecundario}>
+                    Não consegue continuar o serviço? Registre o motivo para análise do atendente.
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.botaoContorno, pressed && styles.pressionado, processando && styles.desabilitado]}
+                    accessibilityRole="button"
+                    disabled={processando}
+                    onPress={() => setMostrarImpedimento((atual) => !atual)}
+                  >
+                    <Text style={styles.botaoContornoTexto}>
+                      {mostrarImpedimento ? 'Ocultar formulário' : 'Registrar impedimento'}
+                    </Text>
+                  </Pressable>
+                  {mostrarImpedimento ? (
+                    <View style={styles.formImpedimento}>
+                      <Text style={styles.rotuloCampo}>Motivo do impedimento <Text style={styles.obrigatorio}>*</Text></Text>
                       <TextInput
                         style={[styles.campo, styles.campoMultilinha]}
                         multiline
                         maxLength={1700}
-                        value={observacao}
-                        onChangeText={setObservacao}
-                        placeholder="Ex.: o reparo foi concluido, mas sera preciso acompanhar a area nos proximos dias"
+                        value={justificativa}
+                        onChangeText={setJustificativa}
+                        placeholder="Ex.: ausência de material necessário para o reparo"
+                        placeholderTextColor={cores.placeholder}
                         editable={!processando}
-                        accessibilityLabel="Observacao opcional para a validacao do servico"
+                        accessibilityLabel="Justificativa do impedimento"
                       />
-                      <Text style={styles.contadorCaracteres}>{observacao.length}/1700 caracteres</Text>
-                      <Text>A observacao sera registrada no historico ao enviar a finalizacao.</Text>
+                      <Text style={styles.contadorCaracteres}>{justificativa.length}/1700 caracteres</Text>
+                      <Pressable
+                        style={({ pressed }) => [styles.botaoAlerta, pressed && styles.botaoAlertaPressionado, processando && styles.desabilitado]}
+                        disabled={processando}
+                        accessibilityRole="button"
+                        onPress={confirmarImpedimento}
+                      >
+                        <Text style={styles.botaoAlertaTexto}>Confirmar impedimento</Text>
+                      </Pressable>
                     </View>
-
-                    <Pressable
-                      style={[
-                        styles.botaoPrincipal,
-                        (processando || !fotoSelecionada) && styles.desabilitado,
-                      ]}
-                      disabled={processando || !fotoSelecionada}
-                      onPress={confirmarFinalizacao}
-                    >
-                      {processando ? <ActivityIndicator color="#FFFFFF" /> : (
-                        <Text style={styles.textoPrincipal}>Enviar para validacao</Text>
-                      )}
-                    </Pressable>
-                  </View>
-                ) : null}
-
-                {chamado.status === 'PENDENTE' ? (
-                  <Text style={styles.aviso}>Execucao pendente. Aguarde a decisao do atendente.</Text>
-                ) : null}
-                {chamado.status === 'AGUARDANDO_VALIDACAO' ? (
-                  <Text style={styles.aviso}>Solucao enviada. Aguarde a validacao do atendente.</Text>
-                ) : null}
-                {chamado.status === 'RESOLVIDO' ? (
-                  <Text style={styles.aviso}>Este chamado foi resolvido.</Text>
-                ) : null}
+                  ) : null}
+                </View>
               </>
             ) : null}
+
+            {chamado.status === 'PENDENTE' ? (
+              <View style={styles.cartaoEspera}>
+                <Text style={styles.esperaTitulo}>Atendimento pendente</Text>
+                <Text style={styles.esperaTexto}>O impedimento foi registrado. Aguarde a decisão do atendente antes de continuar.</Text>
+              </View>
+            ) : null}
+            {chamado.status === 'AGUARDANDO_VALIDACAO' ? (
+              <View style={styles.cartaoEspera}>
+                <Text style={styles.esperaTitulo}>Aguardando validação</Text>
+                <Text style={styles.esperaTexto}>A solução foi enviada e está aguardando aprovação do atendente.</Text>
+              </View>
+            ) : null}
+            {chamado.status === 'RESOLVIDO' ? (
+              <View style={styles.cartaoResolvido}>
+                <Text style={styles.resolvidoTitulo}>✓ Serviço concluído</Text>
+                <Text style={styles.resolvidoTexto}>Este chamado foi aprovado e resolvido. Não há novas ações disponíveis.</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.cartao}>
+              <Text style={styles.rotuloSecao}>01 · OCORRÊNCIA</Text>
+              <Text style={styles.tituloCartao}>Informações do problema</Text>
+              <Text style={styles.rotuloDado}>Descrição</Text>
+              <Text style={styles.textoPrincipal}>{chamado.descricao}</Text>
+              <View style={styles.separador} />
+              <View style={styles.linhaDado}>
+                <View style={styles.dadoColuna}>
+                  <Text style={styles.rotuloDado}>Categoria</Text>
+                  <Text style={styles.valorDado}>{chamado.categoria}</Text>
+                </View>
+                <View style={styles.dadoColuna}>
+                  <Text style={styles.rotuloDado}>Urgência informada</Text>
+                  <Text style={styles.valorDado}>{rotulosPrioridade[chamado.urgenciaPercebida]}</Text>
+                </View>
+              </View>
+              <View style={styles.separador} />
+              <Text style={styles.rotuloDado}>Criado em</Text>
+              <Text style={styles.valorDado}>{formatarData(chamado.dataCriacao)}</Text>
+            </View>
+
+            <View style={styles.cartao}>
+              <Text style={styles.rotuloSecao}>02 · ENDEREÇO</Text>
+              <Text style={styles.tituloCartao}>Localização</Text>
+              <Text style={styles.textoPrincipal}>{chamado.endereco?.trim() || 'Endereço não informado.'}</Text>
+              {possuiCoordenadas ? (
+                <>
+                  <Text style={styles.coordenadas}>Coordenadas: {chamado.latitude}, {chamado.longitude}</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.botaoContorno, pressed && styles.pressionado]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Abrir rota até o chamado no aplicativo de mapas"
+                    onPress={() => void abrirNoMapa()}
+                  >
+                    <Text style={styles.botaoContornoTexto}>Abrir rota no mapa  ↗</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Text style={styles.textoSecundario}>Não há coordenadas disponíveis para abrir o mapa.</Text>
+              )}
+            </View>
+
+            <View style={styles.cartao}>
+              <Text style={styles.rotuloSecao}>03 · REGISTROS</Text>
+              <Text style={styles.tituloCartao}>Fotografias do problema</Text>
+              {erroFotos ? <Text style={styles.textoErro}>{erroFotos}</Text> : null}
+              {!erroFotos && fotosProblema.length === 0 ? (
+                <Text style={styles.textoSecundario}>Nenhuma fotografia do problema registrada.</Text>
+              ) : null}
+              {tokenFotos ? fotosProblema.map((foto, indice) => (
+                <View key={foto.id} style={styles.fotoRegistrada}>
+                  <Text style={styles.legendaFoto}>Foto {indice + 1} · {formatarData(foto.dataEnvio)}</Text>
+                  <ImagemRemota
+                    source={obterFonteFoto(chamadoId, foto.id, tokenFotos)}
+                    style={styles.fotoProblema}
+                    contentFit="contain"
+                    cachePolicy="none"
+                    accessibilityLabel={`Fotografia ${indice + 1} do problema`}
+                    onError={(evento) => {
+                      // Não registrar JWT: o cabeçalho de autorização contém dados sensíveis.
+                      console.warn(`Falha ao exibir a fotografia ${foto.id}:`, evento.error);
+                      setErroFotos('Uma ou mais fotografias não puderam ser exibidas. Confira a conexão.');
+                    }}
+                  />
+                </View>
+              )) : null}
+            </View>
+
+            {(atualizacoes.length > 0 || erroAtualizacoes) ? (
+              <View style={styles.cartao}>
+                <Text style={styles.rotuloSecao}>04 · ANDAMENTO</Text>
+                <Text style={styles.tituloCartao}>Atualizações do chamado</Text>
+                <Text style={styles.textoSecundario}>Último registro de cada assunto relacionado à execução.</Text>
+                {erroAtualizacoes ? <Text style={styles.textoErro}>{erroAtualizacoes}</Text> : null}
+                {atualizacoes.map((atualizacao) => (
+                  <View key={atualizacao.tipo} style={styles.cartaoAtualizacao}>
+                    <Text style={styles.tituloAtualizacao}>{atualizacao.titulo}</Text>
+                    <Text style={styles.textoPrincipal}>{atualizacao.texto}</Text>
+                    <Text style={styles.dataAtualizacao}>{formatarData(atualizacao.dataHora)}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </>
-        )}
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  tela: { flex: 1, backgroundColor: '#FFFFFF' },
-  conteudo: { padding: 20, paddingBottom: 40, gap: 14 },
-  botaoVoltar: { paddingVertical: 8, alignSelf: 'flex-start' },
-  textoVoltar: { color: '#1F4892', fontWeight: '600' },
-  centro: { paddingVertical: 40, alignItems: 'center', gap: 12 },
-  protocolo: { color: '#555555' },
-  titulo: { fontSize: 24, fontWeight: 'bold' },
-  status: { fontWeight: '600' },
-  bloco: { borderWidth: 1, borderColor: '#CCCCCC', borderRadius: 6, padding: 15, gap: 10 },
-  subtitulo: { fontWeight: 'bold', fontSize: 17 },
-  cartaoAtualizacao: {
-    borderWidth: 1, borderColor: '#CCCCCC', borderRadius: 6,
-    padding: 12, gap: 7,
-  },
-  tituloAtualizacao: { fontWeight: '600' },
-  textoAtualizacao: { lineHeight: 21 },
-  dataAtualizacao: { color: '#555555', fontSize: 12 },
-  erro: { color: '#BF0811' },
-  aviso: { borderWidth: 1, borderColor: '#CCCCCC', borderRadius: 6, padding: 14 },
-  campo: { borderWidth: 1, borderColor: '#999999', borderRadius: 6, padding: 12 },
-  campoMultilinha: { minHeight: 100, textAlignVertical: 'top' },
-  contadorCaracteres: { color: '#555555', fontSize: 12, textAlign: 'right' },
-  secaoInterna: { gap: 8 },
-  botaoPrincipal: {
-    backgroundColor: '#1F4892', borderRadius: 6, padding: 14,
-    minHeight: 48, justifyContent: 'center', alignItems: 'center',
-  },
-  textoPrincipal: { color: '#FFFFFF', fontWeight: 'bold' },
-  botaoSecundario: {
-    borderWidth: 1, borderColor: '#999999', borderRadius: 6,
-    paddingVertical: 12, paddingHorizontal: 14, alignItems: 'center',
-  },
-  desabilitado: { opacity: 0.55 },
-  acoesFoto: { flexDirection: 'row', gap: 8 },
-  previewFoto: { width: '100%', height: 200 },
-  fotoProblema: { width: '100%', height: 220 },
+  tela: { flex: 1, backgroundColor: cores.fundo },
+  conteudo: { paddingBottom: 52, gap: espacamentos.grande },
+  cabecalho: { backgroundColor: cores.marinho, paddingHorizontal: espacamentos.maior,
+    paddingTop: espacamentos.grande, paddingBottom: espacamentos.extraGrande, gap: espacamentos.medio },
+  cabecalhoLinha: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    flexWrap: 'wrap', gap: espacamentos.pequeno, marginBottom: espacamentos.minimo },
+  marca: { color: '#BED4EB', fontSize: tipografia.tamanhos.micro, letterSpacing: 0.7, fontWeight: '700' },
+  botaoVoltar: { paddingVertical: espacamentos.pequeno, paddingRight: espacamentos.pequeno },
+  voltarPressionado: { opacity: 0.7 },
+  textoVoltar: { color: cores.ciano, fontWeight: '700', fontSize: tipografia.tamanhos.pequeno },
+  protocolo: { color: cores.ciano, fontSize: tipografia.tamanhos.rodape, fontWeight: '800', letterSpacing: 1 },
+  titulo: { color: cores.superficie, fontSize: 25, fontWeight: '800', lineHeight: 31 },
+  linhaEtiquetas: { flexDirection: 'row', flexWrap: 'wrap', gap: espacamentos.pequeno, alignItems: 'center' },
+  etiquetaStatus: { backgroundColor: cores.azulDetalhe, borderColor: '#62738D', borderWidth: 1,
+    borderRadius: raios.pilula, paddingHorizontal: espacamentos.medio, paddingVertical: 6 },
+  etiquetaStatusTexto: { color: cores.superficie, fontSize: 12, fontWeight: '700' },
+  etiquetaPrioridade: { backgroundColor: '#FFFFFF', borderRadius: raios.pilula, flexDirection: 'row',
+    alignItems: 'center', gap: espacamentos.pequeno, paddingHorizontal: espacamentos.medio, paddingVertical: 7 },
+  etiquetaPrioridadeTexto: { color: cores.noite, fontSize: 12, fontWeight: '700' },
+  pontoPrioridade: { width: 9, height: 9, borderRadius: raios.pilula },
+  carregando: { alignItems: 'center', paddingVertical: 48 },
+  cartao: { marginHorizontal: espacamentos.maior, backgroundColor: cores.superficie,
+    borderWidth: 1, borderColor: cores.borda, borderRadius: raios.grande,
+    padding: espacamentos.grande, gap: espacamentos.medio, ...sombras.cartao },
+  cartaoAcao: { borderTopWidth: 4, borderTopColor: cores.link },
+  rotuloSecao: { color: cores.link, fontSize: tipografia.tamanhos.rodape, letterSpacing: 0.7, fontWeight: '800' },
+  tituloCartao: { color: cores.texto, fontSize: 19, fontWeight: '800', lineHeight: 25 },
+  textoPrincipal: { color: cores.texto, fontSize: tipografia.tamanhos.pequeno, lineHeight: 22 },
+  textoSecundario: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar, lineHeight: 20 },
+  rotuloCampo: { color: cores.texto, fontSize: tipografia.tamanhos.pequeno, fontWeight: '700', marginTop: espacamentos.pequeno },
+  obrigatorio: { color: cores.vermelho },
+  opcional: { color: cores.textoSecundario, fontWeight: '400' },
+  campo: { minHeight: 47, borderWidth: 1, borderColor: cores.borda, borderRadius: raios.medio,
+    paddingHorizontal: espacamentos.medio, paddingVertical: espacamentos.medio,
+    fontSize: tipografia.tamanhos.pequeno, color: cores.texto, backgroundColor: cores.superficie },
+  campoMultilinha: { minHeight: 105, textAlignVertical: 'top' },
+  contadorCaracteres: { fontSize: tipografia.tamanhos.rodape, textAlign: 'right', color: cores.textoSecundario },
+  botaoPrincipal: { minHeight: 50, borderRadius: raios.medio, backgroundColor: cores.ciano,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: espacamentos.grande,
+    paddingVertical: espacamentos.medio, marginTop: espacamentos.pequeno },
+  botaoPrincipalPressionado: { backgroundColor: cores.cianoPressionado },
+  botaoPrincipalTexto: { color: cores.marinho, fontSize: tipografia.tamanhos.pequeno, fontWeight: '800' },
+  botaoContorno: { minHeight: 46, borderColor: cores.borda, borderWidth: 1, borderRadius: raios.medio,
+    alignItems: 'center', justifyContent: 'center', padding: espacamentos.medio },
+  botaoContornoTexto: { color: cores.link, fontSize: tipografia.tamanhos.pequeno, fontWeight: '700' },
+  pressionado: { backgroundColor: cores.fundoInfo },
+  desabilitado: { opacity: 0.5 },
+  botoesFoto: { flexDirection: 'row', gap: espacamentos.pequeno },
+  botaoEscolhaFoto: { flex: 1, minHeight: 47, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: cores.borda, borderRadius: raios.medio, paddingHorizontal: espacamentos.pequeno },
+  botaoEscolhaFotoTexto: { color: cores.link, fontWeight: '700', fontSize: tipografia.tamanhos.pequeno },
+  notaFoto: { fontSize: tipografia.tamanhos.rodape, lineHeight: 17, color: cores.textoSecundario },
+  previaFotoContainer: { backgroundColor: cores.fundo, borderRadius: raios.medio,
+    borderWidth: 1, borderColor: cores.borda, overflow: 'hidden' },
+  previaFoto: { width: '100%', height: 210 },
+  previaRodape: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: espacamentos.pequeno, padding: espacamentos.medio },
+  fotoSelecionadaTexto: { fontSize: tipografia.tamanhos.auxiliar, color: '#087E59', fontWeight: '700' },
+  removerFoto: { color: cores.erroTexto, fontSize: tipografia.tamanhos.auxiliar, fontWeight: '700' },
+  formImpedimento: { gap: espacamentos.medio, paddingTop: espacamentos.pequeno },
+  botaoAlerta: { minHeight: 47, borderWidth: 1, borderColor: '#C9731D', backgroundColor: '#FFF6E9',
+    borderRadius: raios.medio, alignItems: 'center', justifyContent: 'center', padding: espacamentos.medio },
+  botaoAlertaPressionado: { backgroundColor: '#FFE8CC' },
+  botaoAlertaTexto: { color: '#894404', fontSize: tipografia.tamanhos.pequeno, fontWeight: '800' },
+  cartaoEspera: { marginHorizontal: espacamentos.maior, backgroundColor: '#FFF8E9', borderWidth: 1,
+    borderColor: '#EAD09E', borderRadius: raios.grande, padding: espacamentos.grande, gap: espacamentos.pequeno },
+  esperaTitulo: { color: '#8B510B', fontSize: tipografia.tamanhos.corpo, fontWeight: '800' },
+  esperaTexto: { color: '#76551E', fontSize: tipografia.tamanhos.pequeno, lineHeight: 21 },
+  cartaoResolvido: { marginHorizontal: espacamentos.maior, backgroundColor: '#E7F8F1',
+    borderWidth: 1, borderColor: '#B9E5D1', borderRadius: raios.grande,
+    padding: espacamentos.grande, gap: espacamentos.pequeno },
+  resolvidoTitulo: { color: '#087E59', fontSize: tipografia.tamanhos.corpo, fontWeight: '800' },
+  resolvidoTexto: { color: '#24644D', fontSize: tipografia.tamanhos.pequeno, lineHeight: 21 },
+  rotuloDado: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar, fontWeight: '600' },
+  valorDado: { color: cores.texto, fontSize: tipografia.tamanhos.pequeno, fontWeight: '700', lineHeight: 21 },
+  separador: { height: 1, backgroundColor: cores.borda },
+  linhaDado: { flexDirection: 'row', alignItems: 'flex-start', gap: espacamentos.grande },
+  dadoColuna: { flex: 1, gap: espacamentos.minimo },
+  coordenadas: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.rodape },
+  fotoRegistrada: { backgroundColor: '#FAFCFF', borderRadius: raios.medio, overflow: 'hidden',
+    borderWidth: 1, borderColor: cores.borda, paddingTop: espacamentos.medio },
+  legendaFoto: { fontSize: tipografia.tamanhos.auxiliar, color: cores.textoSecundario,
+    fontWeight: '700', paddingHorizontal: espacamentos.medio },
+  fotoProblema: { width: '100%', height: 220, marginTop: espacamentos.pequeno },
+  cartaoAtualizacao: { gap: espacamentos.pequeno, padding: espacamentos.medio,
+    borderLeftWidth: 3, borderLeftColor: cores.ciano,
+    backgroundColor: cores.fundoFoco, borderRadius: raios.pequeno },
+  tituloAtualizacao: { color: cores.texto, fontSize: tipografia.tamanhos.pequeno, fontWeight: '800' },
+  dataAtualizacao: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.rodape },
+  cartaoErro: { backgroundColor: cores.erroFundo, borderColor: cores.erroBorda },
+  tituloErro: { color: cores.erroTexto, fontSize: tipografia.tamanhos.corpo, fontWeight: '800' },
+  textoErro: { color: cores.erroTexto, fontSize: tipografia.tamanhos.pequeno, lineHeight: 21 },
 });
