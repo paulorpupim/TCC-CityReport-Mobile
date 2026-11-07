@@ -1,4 +1,3 @@
-
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 
@@ -86,4 +85,18 @@ export async function encerrarSessaoSeInvalida(erro: unknown): Promise<boolean> 
     // Sem conexao/erro 5xx nao deve apagar uma sessao valida.
     return false;
   }
+}
+
+// Solicita a troca de senha usando o JWT do proprio funcionario.
+// Apos a troca, a tela remove o token local e exige novo login.
+export async function alterarMinhaSenha(
+  senhaAtual: string,
+  novaSenha: string,
+  confirmarNovaSenha: string
+): Promise<void> {
+  await api.post('/api/funcionarios/minha-senha', {
+    senhaAtual,
+    novaSenha,
+    confirmarNovaSenha,
+  });
 }

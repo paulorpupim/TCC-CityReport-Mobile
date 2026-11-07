@@ -85,11 +85,18 @@ export default function HomeScreen() {
           <Text style={styles.titulo}>Meus atendimentos</Text>
           <Text style={styles.subtitulo}>Gerencie suas atividades de campo.</Text>
         </View>
-        <Pressable style={({ pressed }) => [styles.botaoSair, pressed && styles.botaoSairPressionado]}
-          accessibilityRole="button" accessibilityLabel="Sair da conta"
-          onPress={() => void fazerLogout()}>
-          <Text style={styles.textoSair}>Sair</Text>
-        </Pressable>
+        <View style={styles.acoesConta}>
+          <Pressable style={({ pressed }) => [styles.botaoSair, pressed && styles.botaoSairPressionado]}
+            accessibilityRole="button" accessibilityLabel="Alterar minha senha"
+            onPress={() => router.push('/alterar-senha')}>
+            <Text style={styles.textoSair}>Minha senha</Text>
+          </Pressable>
+          <Pressable style={({ pressed }) => [styles.botaoSair, pressed && styles.botaoSairPressionado]}
+            accessibilityRole="button" accessibilityLabel="Sair da conta"
+            onPress={() => void fazerLogout()}>
+            <Text style={styles.textoSair}>Sair</Text>
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.conteudo} showsVerticalScrollIndicator={false}
@@ -182,6 +189,7 @@ const styles = StyleSheet.create({
   marcaSecundaria: { color: '#C1D1E6', fontWeight: '500' },
   titulo: { color: cores.superficie, fontSize: tipografia.tamanhos.titulo, fontWeight: '800' },
   subtitulo: { color: '#CCD8E8', fontSize: tipografia.tamanhos.pequeno, lineHeight: 20 },
+  acoesConta: { alignItems: 'stretch', gap: espacamentos.pequeno },
   botaoSair: {
     borderWidth: 1, borderColor: '#66768D', borderRadius: raios.pequeno,
     paddingHorizontal: espacamentos.medio, paddingVertical: espacamentos.pequeno,
