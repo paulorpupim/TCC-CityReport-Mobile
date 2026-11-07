@@ -1,13 +1,25 @@
-import { alterarMinhaSenha, encerrarSessaoSeInvalida, obterToken, sair } from '@/services/authService';
+import { alterarMinhaSenha, encerrarSessaoSeInvalida, obterToken } from '@/services/authService';
 import { cores, espacamentos, raios, sombras, tipografia } from '@/styles/theme';
 import axios from 'axios';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+// Mesma regra de senha forte utilizada pelo UsuarioService do backend.
+const PADRAO_SENHA_FORTE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9\s])\S{8,64}$/;
+
+// Orientações que acompanham a digitação da nova senha.
+const requisitosSenha = [
+  { descricao: 'De 8 a 64 caracteres', valido: (senha: string) => senha.length >= 8 && senha.length <= 64 },
+  { descricao: 'Letra maiúscula e minúscula', valido: (senha: string) => /[A-Z]/.test(senha) && /[a-z]/.test(senha) },
+  { descricao: 'Pelo menos um número', valido: (senha: string) => /[0-9]/.test(senha) },
+  { descricao: 'Pelo menos um símbolo', valido: (senha: string) => /[^A-Za-z0-9\s]/.test(senha) },
+  { descricao: 'Sem espaços', valido: (senha: string) => senha.length > 0 && !/\s/.test(senha) },
+];
 
 export default function AlterarSenhaScreen() {
   const router = useRouter();
@@ -17,6 +29,7 @@ export default function AlterarSenhaScreen() {
   const [mostrarSenhas, setMostrarSenhas] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  const [sucesso, setSucesso] = useState('');
 
   useFocusEffect(useCallback(() => {
     let ativo = true;
@@ -31,13 +44,14 @@ export default function AlterarSenhaScreen() {
   async function salvarSenha() {
     if (salvando) return;
     setErro('');
+    setSucesso('');
 
     if (!senhaAtual || !novaSenha || !confirmarNovaSenha) {
       setErro('Preencha os três campos para continuar.');
       return;
     }
-    if (novaSenha.length < 8) {
-      setErro('A nova senha precisa ter pelo menos 8 caracteres.');
+    if (!PADRAO_SENHA_FORTE.test(novaSenha)) {
+      setErro('A nova senha deve ter de 8 a 64 caracteres, com letra maiúscula, minúscula, número e símbolo, sem espaços.');
       return;
     }
     if (novaSenha !== confirmarNovaSenha) {
@@ -55,13 +69,7 @@ export default function AlterarSenhaScreen() {
       setSenhaAtual('');
       setNovaSenha('');
       setConfirmarNovaSenha('');
-      await sair();
-      Alert.alert(
-        'Senha alterada',
-        'Sua senha foi atualizada. Entre novamente usando a nova senha.',
-        [{ text: 'Ir para login', onPress: () => router.replace('/login') }],
-        { cancelable: false }
-      );
+      setSucesso('Senha alterada com sucesso. Você continua conectado.');
     } catch (falha) {
       if (await encerrarSessaoSeInvalida(falha)) {
         router.replace('/login');
@@ -78,6 +86,8 @@ export default function AlterarSenhaScreen() {
         } else {
           setErro('Não foi possível alterar a senha. Tente novamente.');
         }
+      } else if (falha instanceof Error && falha.message) {
+        setErro(falha.message);
       } else {
         setErro('Não foi possível concluir a operação. Tente novamente.');
       }
@@ -118,7 +128,7 @@ export default function AlterarSenhaScreen() {
           <View style={styles.cartao}>
             <Text style={styles.tituloCartao}>Segurança da conta</Text>
             <Text style={styles.descricao}>
-              Para proteger sua conta, confirme a senha atual e escolha uma nova com pelo menos 8 caracteres.
+              Confirme sua senha atual e escolha uma nova que atenda aos requisitos de segurança.
             </Text>
 
             <View style={styles.grupo}>
@@ -155,6 +165,21 @@ export default function AlterarSenhaScreen() {
                 editable={!salvando}
                 accessibilityLabel="Nova senha"
               />
+              {novaSenha.length > 0 && (
+                <View style={styles.requisitosSenha}>
+                  {requisitosSenha.map(requisito => {
+                    const atendido = requisito.valido(novaSenha);
+                    return (
+                      <Text
+                        key={requisito.descricao}
+                        style={[styles.requisitoTexto, atendido && styles.requisitoAtendido]}
+                      >
+                        {atendido ? '✓' : '○'} {requisito.descricao}
+                      </Text>
+                    );
+                  })}
+                </View>
+              )}
             </View>
 
             <View style={styles.grupo}>
@@ -195,6 +220,12 @@ export default function AlterarSenhaScreen() {
               </View>
             )}
 
+            {!!sucesso && (
+              <View style={styles.avisoSucesso} accessibilityLiveRegion="polite">
+                <Text style={styles.sucessoTexto}>{sucesso}</Text>
+              </View>
+            )}
+
             <Pressable
               onPress={() => void salvarSenha()}
               disabled={salvando}
@@ -217,7 +248,7 @@ export default function AlterarSenhaScreen() {
           </View>
 
           <Text style={styles.rodape}>
-            Você precisará entrar novamente após trocar a senha.
+            Sua senha é atualizada sem encerrar a sessão atual.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -256,11 +287,17 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: cores.borda, paddingHorizontal: espacamentos.grande,
     color: cores.texto, fontSize: tipografia.tamanhos.corpo,
   },
+  requisitosSenha: { gap: espacamentos.minimo, marginTop: espacamentos.minimo },
+  requisitoTexto: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar, lineHeight: 19 },
+  requisitoAtendido: { color: '#047857' },
   mostrarSenha: { alignSelf: 'flex-end', paddingVertical: espacamentos.minimo },
   mostrarSenhaTexto: { color: cores.link, fontSize: tipografia.tamanhos.auxiliar, fontWeight: '700' },
   avisoErro: { backgroundColor: cores.erroFundo, borderColor: cores.erroBorda,
     borderWidth: 1, borderRadius: raios.aviso, padding: espacamentos.medio },
   erroTexto: { color: cores.erroTexto, fontSize: tipografia.tamanhos.auxiliar, lineHeight: 20 },
+  avisoSucesso: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0',
+    borderWidth: 1, borderRadius: raios.aviso, padding: espacamentos.medio },
+  sucessoTexto: { color: '#047857', fontSize: tipografia.tamanhos.auxiliar, lineHeight: 20 },
   botaoSalvar: {
     backgroundColor: cores.ciano, minHeight: 54, borderRadius: raios.medio,
     alignItems: 'center', justifyContent: 'center', marginTop: espacamentos.pequeno,

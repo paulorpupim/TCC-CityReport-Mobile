@@ -1,5 +1,5 @@
-import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
+import * as SecureStore from 'expo-secure-store';
 
 import { api } from './api';
 
@@ -87,16 +87,32 @@ export async function encerrarSessaoSeInvalida(erro: unknown): Promise<boolean> 
   }
 }
 
-// Solicita a troca de senha usando o JWT do proprio funcionario.
-// Apos a troca, a tela remove o token local e exige novo login.
+// Solicita a troca de senha com o JWT atual.
+// O servidor retorna um novo token, pois a troca invalida automaticamente os anteriores.
+// So consideramos a operacao concluida no app apos salvar o token renovado.
 export async function alterarMinhaSenha(
   senhaAtual: string,
   novaSenha: string,
   confirmarNovaSenha: string
 ): Promise<void> {
-  await api.post('/api/funcionarios/minha-senha', {
-    senhaAtual,
-    novaSenha,
-    confirmarNovaSenha,
-  });
+  const resposta = await api.post<TokenMobileResponseDTO>(
+    '/api/funcionarios/minha-senha',
+    { senhaAtual, novaSenha, confirmarNovaSenha }
+  );
+
+  if (!resposta.data?.token) {
+    throw new Error(
+      'A senha pode ter sido alterada, mas o servidor não retornou a nova sessão. ' +
+      'Atualize o backend e faça login novamente com a nova senha.'
+    );
+  }
+
+  try {
+    await SecureStore.setItemAsync(CHAVE_TOKEN, resposta.data.token);
+  } catch {
+    throw new Error(
+      'Senha alterada, mas não foi possível salvar a sessão no celular. ' +
+      'Faça login novamente com a nova senha.'
+    );
+  }
 }
