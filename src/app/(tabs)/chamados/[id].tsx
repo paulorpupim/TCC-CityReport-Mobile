@@ -304,9 +304,9 @@ export default function DetalhesChamadoScreen() {
     );
   }
 
-  // Abre o trajeto ate a localizacao registrada no chamado.
-  // A navegacao e feita pelo aplicativo de mapas do celular, sem
-  // solicitar a localizacao do funcionario dentro do CityReport.
+  // Usa o aplicativo de mapas do celular para guiar o funcionario ate o chamado.
+  // Sem informar uma origem fixa, o app de mapas usa a localizacao atual
+  // do dispositivo quando ela estiver disponivel. Sem permissao extra no CityReport.
   async function abrirNoMapa() {
     if (!chamado) return;
 
@@ -326,7 +326,7 @@ export default function DetalhesChamadoScreen() {
     const destino = encodeURIComponent(`${latitude},${longitude}`);
     const url = Platform.OS === 'ios'
       ? `https://maps.apple.com/?daddr=${destino}&dirflg=d`
-      : `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving`;
+      : `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving&dir_action=navigate`;
 
     try {
       await Linking.openURL(url);
@@ -615,7 +615,7 @@ export default function DetalhesChamadoScreen() {
                     accessibilityLabel="Abrir rota até o chamado no aplicativo de mapas"
                     onPress={() => void abrirNoMapa()}
                   >
-                    <Text style={styles.botaoContornoTexto}>Abrir rota no mapa  ↗</Text>
+                    <Text style={styles.botaoContornoTexto}>Traçar rota até o chamado  ↗</Text>
                   </Pressable>
                 </>
               ) : (

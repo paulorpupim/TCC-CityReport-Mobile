@@ -6,12 +6,17 @@ import axios from 'axios';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View,
+  ActivityIndicator, Pressable, SectionList, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type TipoLista = 'atribuidos' | 'concluidos';
 type Secao = { titulo: string; cor: string; data: ChamadoResponseDTO[] };
+
+// Remove acentos e ignora maiúsculas/minúsculas para facilitar a busca.
+function normalizarBusca(texto: string) {
+  return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
 
 const prioridades: { codigo: Prioridade; nome: string; cor: string }[] = [
   { codigo: 'CRITICA', nome: 'Crítica', cor: cores.vermelho },
@@ -63,6 +68,7 @@ export default function ListaChamadosFuncionario({ tipo }: { tipo: TipoLista }) 
   const [carregando, setCarregando] = useState(true);
   const [atualizando, setAtualizando] = useState(false);
   const [erro, setErro] = useState('');
+  const [pesquisa, setPesquisa] = useState('');
   const eAtribuidos = tipo === 'atribuidos';
 
   const carregar = useCallback(async (atualizacao = false, ativo = () => true) => {
@@ -95,24 +101,33 @@ export default function ListaChamadosFuncionario({ tipo }: { tipo: TipoLista }) 
   }, [router, tipo]);
 
   useFocusEffect(useCallback(() => {
-    let ativo = true;
-    void carregar(false, () => ativo);
+    let ativo: boolean = true;
+    void carregar(false, (() => ativo) as () => true);
     return () => { ativo = false; };
   }, [carregar]));
 
+  const chamadosFiltrados = useMemo(() => {
+    const termo = normalizarBusca(pesquisa);
+    if (!termo) return chamados;
+
+    return chamados.filter((chamado) => normalizarBusca(
+      `${chamado.protocolo} ${chamado.titulo}`
+    ).includes(termo));
+  }, [chamados, pesquisa]);
+
   const secoes = useMemo<Secao[]>(() => {
-    if (!eAtribuidos) return chamados.length
-      ? [{ titulo: 'Mais recentes primeiro', cor: '#087E59', data: chamados }]
+    if (!eAtribuidos) return chamadosFiltrados.length
+      ? [{ titulo: 'Mais recentes primeiro', cor: '#087E59', data: chamadosFiltrados }]
       : [];
     const resultado = prioridades.map((p) => ({
       titulo: `Prioridade ${p.nome.toLowerCase()}`,
       cor: p.cor,
-      data: chamados.filter((c) => c.prioridadeOficial === p.codigo),
+      data: chamadosFiltrados.filter((c) => c.prioridadeOficial === p.codigo),
     })).filter((s) => s.data.length > 0);
-    const naoDefinida = chamados.filter((c) => !c.prioridadeOficial);
+    const naoDefinida = chamadosFiltrados.filter((c) => !c.prioridadeOficial);
     if (naoDefinida.length) resultado.push({ titulo: 'Prioridade não definida', cor: cores.textoSecundario, data: naoDefinida });
     return resultado;
-  }, [chamados, eAtribuidos]);
+  }, [chamadosFiltrados, eAtribuidos]);
 
   function abrir(id: number) {
     router.push({ pathname: '/chamados/[id]', params: { id: String(id) } });
@@ -134,6 +149,34 @@ export default function ListaChamadosFuncionario({ tipo }: { tipo: TipoLista }) 
         </Text>
       </View>
 
+      {!carregando && !erro && (
+        <View style={styles.areaPesquisa}>
+          <View style={styles.campoPesquisa}>
+            <View style={styles.iconePesquisa} accessible={false}>
+              <View style={styles.lentePesquisa} />
+              <View style={styles.caboPesquisa} />
+            </View>
+            <TextInput
+              style={styles.entradaPesquisa}
+              value={pesquisa}
+              onChangeText={setPesquisa}
+              placeholder="Pesquisar protocolo ou título..."
+              placeholderTextColor={cores.placeholder}
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              accessibilityLabel="Pesquisar chamados por protocolo ou título"
+            />
+            {!!pesquisa && (
+              <Pressable onPress={() => setPesquisa('')} accessibilityRole="button"
+                accessibilityLabel="Limpar pesquisa" style={styles.limparPesquisa}>
+                <Text style={styles.textoLimparPesquisa}>×</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
+
       {carregando ? (
         <View style={styles.centro}>
           <ActivityIndicator size="large" color={cores.link} />
@@ -148,9 +191,12 @@ export default function ListaChamadosFuncionario({ tipo }: { tipo: TipoLista }) 
           stickySectionHeadersEnabled={false}
           refreshing={atualizando}
           onRefresh={() => void carregar(true)}
+          keyboardShouldPersistTaps="handled"
           ListHeaderComponent={!erro ? (
             <Text style={styles.resumo}>
-              {chamados.length} {chamados.length === 1 ? 'chamado encontrado' : 'chamados encontrados'}
+              {normalizarBusca(pesquisa)
+                ? `${chamadosFiltrados.length} de ${chamados.length} ${chamadosFiltrados.length === 1 ? 'chamado encontrado' : 'chamados encontrados'}`
+                : `${chamados.length} ${chamados.length === 1 ? 'chamado encontrado' : 'chamados encontrados'}`}
             </Text>
           ) : null}
           renderSectionHeader={({ section }) => section.data.length ? (
@@ -166,9 +212,11 @@ export default function ListaChamadosFuncionario({ tipo }: { tipo: TipoLista }) 
           ListEmptyComponent={
             <View style={erro ? styles.erro : styles.vazio}>
               <Text style={erro ? styles.textoErro : styles.detalhe}>
-                {erro || (eAtribuidos
-                  ? 'Você não possui chamados aguardando atendimento ou validação.'
-                  : 'Nenhum chamado concluído por você até agora.')}
+                {erro || (chamados.length > 0 && normalizarBusca(pesquisa)
+                  ? 'Nenhum chamado corresponde à pesquisa.'
+                  : eAtribuidos
+                    ? 'Você não possui chamados aguardando atendimento ou validação.'
+                    : 'Nenhum chamado concluído por você até agora.')}
               </Text>
               {!!erro && (
                 <Pressable accessibilityRole="button" onPress={() => void carregar()}>
@@ -186,50 +234,96 @@ export default function ListaChamadosFuncionario({ tipo }: { tipo: TipoLista }) 
 
 const styles = StyleSheet.create({
   tela: { flex: 1, backgroundColor: cores.fundo },
-  cabecalho: { backgroundColor: cores.marinho, padding: espacamentos.maior,
-    paddingTop: espacamentos.grande, gap: espacamentos.pequeno },
-  voltar: { alignSelf: 'flex-start', borderColor: '#66768D', borderWidth: 1,
+  cabecalho: {
+    backgroundColor: cores.marinho, padding: espacamentos.maior,
+    paddingTop: espacamentos.grande, gap: espacamentos.pequeno
+  },
+  voltar: {
+    alignSelf: 'flex-start', borderColor: '#66768D', borderWidth: 1,
     borderRadius: raios.pequeno, paddingVertical: espacamentos.pequeno,
-    paddingHorizontal: espacamentos.medio, marginBottom: espacamentos.pequeno },
+    paddingHorizontal: espacamentos.medio, marginBottom: espacamentos.pequeno
+  },
   textoVoltar: { color: cores.superficie, fontWeight: '700' },
   marca: { color: cores.ciano, fontSize: tipografia.tamanhos.rodape, fontWeight: '800', letterSpacing: 0.9 },
   tituloPagina: { color: cores.superficie, fontSize: tipografia.tamanhos.titulo, fontWeight: '800' },
   subtitulo: { color: '#CCD8E8', fontSize: tipografia.tamanhos.pequeno, lineHeight: 21 },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: espacamentos.medio },
+  areaPesquisa: {
+    backgroundColor: cores.fundo, paddingHorizontal: espacamentos.maior,
+    paddingTop: espacamentos.grande, paddingBottom: espacamentos.pequeno
+  },
+  campoPesquisa: {
+    backgroundColor: cores.superficie, borderWidth: 1, borderColor: cores.borda,
+    borderRadius: raios.medio, flexDirection: 'row', alignItems: 'center',
+    paddingLeft: espacamentos.medio, minHeight: 48
+  },
+  iconePesquisa: { width: 22, height: 22, marginRight: espacamentos.pequeno },
+  lentePesquisa: {
+    position: 'absolute', top: 1, left: 1, width: 14, height: 14, borderRadius: 7,
+    borderWidth: 2, borderColor: cores.textoSecundario
+  },
+  caboPesquisa: {
+    position: 'absolute', bottom: 2, right: 0, width: 9, height: 2,
+    backgroundColor: cores.textoSecundario, borderRadius: 1, transform: [{ rotate: '45deg' }]
+  },
+  entradaPesquisa: {
+    flex: 1, color: cores.texto, fontSize: tipografia.tamanhos.corpo,
+    paddingVertical: espacamentos.medio, paddingRight: espacamentos.pequeno
+  },
+  limparPesquisa: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  textoLimparPesquisa: { color: cores.textoSecundario, fontSize: 27 },
   conteudo: { padding: espacamentos.maior, paddingBottom: 50 },
-  resumo: { color: cores.textoSecundario, marginBottom: espacamentos.grande,
-    fontSize: tipografia.tamanhos.pequeno },
-  secaoCabecalho: { backgroundColor: cores.superficie, borderColor: cores.borda,
+  resumo: {
+    color: cores.textoSecundario, marginBottom: espacamentos.grande,
+    fontSize: tipografia.tamanhos.pequeno
+  },
+  secaoCabecalho: {
+    backgroundColor: cores.superficie, borderColor: cores.borda,
     borderWidth: 1, borderRadius: raios.medio, padding: espacamentos.medio,
-    flexDirection: 'row', alignItems: 'center', gap: espacamentos.pequeno, marginBottom: espacamentos.medio },
+    flexDirection: 'row', alignItems: 'center', gap: espacamentos.pequeno, marginBottom: espacamentos.medio
+  },
   faixa: { width: 5, height: 27, borderRadius: raios.ponto },
   secaoTitulo: { color: cores.texto, fontWeight: '800', flex: 1, fontSize: 16 },
   quantidade: { color: cores.textoSecundario, fontWeight: '700' },
-  item: { backgroundColor: cores.superficie, borderColor: cores.borda,
+  item: {
+    backgroundColor: cores.superficie, borderColor: cores.borda,
     borderWidth: 1, borderRadius: raios.medio, padding: espacamentos.grande,
-    gap: espacamentos.pequeno, ...sombras.cartao },
+    gap: espacamentos.pequeno, ...sombras.cartao
+  },
   pressionado: { backgroundColor: cores.fundoInfo },
-  linha: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    flexWrap: 'wrap', gap: espacamentos.pequeno },
+  linha: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexWrap: 'wrap', gap: espacamentos.pequeno
+  },
   protocolo: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar, fontWeight: '600' },
   status: { color: cores.link, fontWeight: '700', fontSize: 11 },
   statusConcluido: { color: '#087E59' },
-  tituloItem: { color: cores.texto, fontSize: tipografia.tamanhos.corpo,
-    lineHeight: 23, fontWeight: '700' },
+  tituloItem: {
+    color: cores.texto, fontSize: tipografia.tamanhos.corpo,
+    lineHeight: 23, fontWeight: '700'
+  },
   detalhe: { color: cores.textoSecundario, fontSize: tipografia.tamanhos.pequeno, lineHeight: 21 },
-  rodape: { borderTopColor: cores.borda, borderTopWidth: 1,
-    paddingTop: espacamentos.medio, marginTop: espacamentos.minimo },
+  rodape: {
+    borderTopColor: cores.borda, borderTopWidth: 1,
+    paddingTop: espacamentos.medio, marginTop: espacamentos.minimo
+  },
   prioridade: { fontSize: tipografia.tamanhos.auxiliar, fontWeight: '700' },
   verDetalhes: { color: cores.link, fontSize: tipografia.tamanhos.auxiliar, fontWeight: '700' },
   espacoItem: { height: espacamentos.medio },
   espacoSecao: { height: espacamentos.grande },
-  vazio: { backgroundColor: cores.superficie, borderRadius: raios.medio,
-    borderColor: cores.borda, borderWidth: 1, padding: espacamentos.extraGrande },
-  erro: { backgroundColor: cores.erroFundo, borderColor: cores.erroBorda,
+  vazio: {
+    backgroundColor: cores.superficie, borderRadius: raios.medio,
+    borderColor: cores.borda, borderWidth: 1, padding: espacamentos.extraGrande
+  },
+  erro: {
+    backgroundColor: cores.erroFundo, borderColor: cores.erroBorda,
     borderWidth: 1, borderRadius: raios.medio, padding: espacamentos.grande,
-    gap: espacamentos.medio },
+    gap: espacamentos.medio
+  },
   textoErro: { color: cores.erroTexto, lineHeight: 21 },
   tentarNovamente: { color: cores.link, fontWeight: '700' },
-  dica: { textAlign: 'center', paddingTop: espacamentos.extraGrande,
-    color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar },
+  dica: {
+    textAlign: 'center', paddingTop: espacamentos.extraGrande,
+    color: cores.textoSecundario, fontSize: tipografia.tamanhos.auxiliar
+  },
 });
